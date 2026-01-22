@@ -241,19 +241,6 @@ ${item.aiComment}
                     ))}
                 </div>
             )}
-
-            {/* API Uyarısı */}
-            <div className="mt-8 p-4 bg-amber-900/20 border border-amber-800/30 rounded-lg">
-                <div className="flex gap-3">
-                    <AlertCircle size={20} className="text-amber-400 shrink-0 mt-0.5" />
-                    <div className="text-sm">
-                        <p className="text-amber-200 font-medium">OpenAI API Gerekli</p>
-                        <p className="text-amber-300/70 mt-1">
-                            AI işleme için .env dosyasına OPENAI_API_KEY ekleyin.
-                        </p>
-                    </div>
-                </div>
-            </div>
         </div>
     )
 }
