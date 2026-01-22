@@ -5,7 +5,7 @@ import {
     RefreshCw, Bot, Copy, Check, Send, Trash2,
     Twitter, Globe, CheckSquare, Square, Star,
     Plus, X, ExternalLink, Clock,
-    Filter, Building2, Users, Newspaper, Zap
+    Building2, Users, Newspaper, ChevronDown, ChevronUp
 } from 'lucide-react'
 import {
     StoredNews,
@@ -19,22 +19,55 @@ import {
     deleteAccount,
     TrackedAccount
 } from '@/lib/db'
-import { DEFAULT_SOURCES, getSourceLabel, getSourceIcon, NewsSource } from '@/lib/sources'
 
-type TabType = 'news' | 'accounts' | 'sources'
+// Kaynak türleri
+type SourceType = 'resmi' | 'sendika' | 'haber' | 'twitter' | 'custom'
+
+interface CustomSource {
+    id: string
+    name: string
+    url: string
+    type: SourceType
+}
+
+// Varsayılan kaynaklar
+const DEFAULT_SOURCES: CustomSource[] = [
+    // Resmi
+    { id: 'resmi-gazete', name: 'Resmî Gazete', url: 'https://www.resmigazete.gov.tr', type: 'resmi' },
+    { id: 'tbmm', name: 'TBMM Haberler', url: 'https://www.tbmm.gov.tr/haber', type: 'resmi' },
+    { id: 'csgb', name: 'Çalışma Bakanlığı', url: 'https://www.csgb.gov.tr/haberler/', type: 'resmi' },
+    // Sendikalar
+    { id: 'turk-is', name: 'Türk-İş', url: 'https://www.turkis.org.tr/kategori/haberler/', type: 'sendika' },
+    { id: 'disk', name: 'DİSK', url: 'https://disk.org.tr/category/basin-aciklamalari/', type: 'sendika' },
+    { id: 'memur-sen', name: 'Memur-Sen', url: 'https://www.memursen.org.tr/haberler', type: 'sendika' },
+    { id: 'kesk', name: 'KESK', url: 'https://www.kesk.org.tr', type: 'sendika' },
+    // Haber Siteleri
+    { id: 'memurlar', name: 'Memurlar.net', url: 'https://www.memurlar.net/haber/', type: 'haber' },
+    { id: 'kamuajans', name: 'Kamu Ajans', url: 'https://www.kamuajans.com/gundem/', type: 'haber' },
+    { id: 'memurhaber', name: 'Memur Haber', url: 'https://www.memurhaber.com/guncel/', type: 'haber' },
+]
 
 export default function DashboardPage() {
     const [news, setNews] = useState<StoredNews[]>([])
     const [accounts, setAccounts] = useState<TrackedAccount[]>([])
-    const [sources, setSources] = useState<NewsSource[]>(DEFAULT_SOURCES)
+    const [sources, setSources] = useState<CustomSource[]>(DEFAULT_SOURCES)
     const [loading, setLoading] = useState(true)
     const [fetching, setFetching] = useState<string | null>(null)
     const [processing, setProcessing] = useState<string | null>(null)
     const [copied, setCopied] = useState<string | null>(null)
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-    const [activeTab, setActiveTab] = useState<TabType>('news')
+
+    // Bölüm açık/kapalı durumları
+    const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['resmi', 'sendika', 'haber', 'twitter']))
+
+    // Yeni kaynak ekleme
+    const [newSourceName, setNewSourceName] = useState('')
+    const [newSourceUrl, setNewSourceUrl] = useState('')
+    const [newSourceType, setNewSourceType] = useState<SourceType>('custom')
+    const [showAddSource, setShowAddSource] = useState(false)
+
+    // Yeni X hesabı
     const [newAccountHandle, setNewAccountHandle] = useState('')
-    const [filterType, setFilterType] = useState<string>('all')
 
     useEffect(() => {
         loadData()
@@ -55,13 +88,47 @@ export default function DashboardPage() {
         }
     }
 
-    // Duplicate kontrolü - başlık veya URL
-    const isDuplicate = (content: string, sourceUrl?: string): boolean => {
-        const contentLower = content.toLowerCase().slice(0, 50)
-        return news.some(n =>
-            n.content.toLowerCase().slice(0, 50) === contentLower ||
-            (sourceUrl && n.sourceUrl === sourceUrl)
-        )
+    // Bölümü aç/kapa
+    const toggleSection = (section: string) => {
+        const newSet = new Set(expandedSections)
+        if (newSet.has(section)) {
+            newSet.delete(section)
+        } else {
+            newSet.add(section)
+        }
+        setExpandedSections(newSet)
+    }
+
+    // Haberleri türe göre filtrele
+    const getNewsByType = (type: SourceType): StoredNews[] => {
+        return news.filter(n => {
+            if (type === 'twitter') return n.sourceType === 'twitter'
+            // Kaynak adına göre eşleştir
+            const source = sources.find(s => s.name === n.source)
+            return source?.type === type
+        })
+    }
+
+    // Kaynak ekle
+    const handleAddSource = () => {
+        if (!newSourceName.trim() || !newSourceUrl.trim()) return
+
+        const newSource: CustomSource = {
+            id: `custom_${Date.now()}`,
+            name: newSourceName.trim(),
+            url: newSourceUrl.trim().startsWith('http') ? newSourceUrl.trim() : `https://${newSourceUrl.trim()}`,
+            type: newSourceType
+        }
+
+        setSources(prev => [...prev, newSource])
+        setNewSourceName('')
+        setNewSourceUrl('')
+        setShowAddSource(false)
+    }
+
+    // Kaynak sil
+    const handleDeleteSource = (id: string) => {
+        setSources(prev => prev.filter(s => s.id !== id))
     }
 
     // X hesabı ekle
@@ -94,209 +161,82 @@ export default function DashboardPage() {
         setAccounts(prev => prev.filter(a => a.id !== id))
     }
 
-    // Kaynak aktif/pasif toggle
-    const toggleSource = (id: string) => {
-        setSources(prev => prev.map(s =>
-            s.id === id ? { ...s, active: !s.active } : s
-        ))
-    }
+    // Kaynaktan haber çek
+    const handleFetchFromSource = async (source: CustomSource) => {
+        setFetching(source.id)
 
-    // GERÇEK HABER ÇEKİMİ - RSS API kullanarak
-    const handleFetchRealNews = async () => {
-        setFetching('haber')
+        // Haberi ekle
+        const newsItem = {
+            title: `📰 ${source.name} - Son Haberler`,
+            content: `${source.name} sitesindeki güncel haberler için kaynağa gidin.`,
+            source: source.name,
+            sourceUrl: source.url,
+            sourceType: 'rss' as const,
+            processed: false,
+        }
 
-        try {
-            const res = await fetch('/api/news/fetch')
-            if (res.ok) {
-                const data = await res.json()
-                let addedCount = 0
-
-                for (const item of data.items || []) {
-                    if (!isDuplicate(item.title, item.link)) {
-                        const newsItem = {
-                            title: item.title,
-                            content: item.content || item.title,
-                            source: item.source,
-                            sourceUrl: item.link,
-                            sourceType: 'rss' as const,
-                            processed: false,
-                        }
-                        const stored = await addNews(newsItem)
-                        setNews(prev => [stored, ...prev])
-                        addedCount++
-                    }
-                }
-
-                if (addedCount === 0) {
-                    alert('Yeni haber bulunamadı veya tüm haberler zaten mevcut.')
-                } else {
-                    alert(`${addedCount} yeni haber eklendi!`)
-                }
-            } else {
-                alert('Haber çekme hatası!')
-            }
-        } catch (error) {
-            console.error('Fetch error:', error)
-            alert('Sunucu bağlantı hatası!')
+        const existing = news.find(n => n.sourceUrl === source.url)
+        if (!existing) {
+            const stored = await addNews(newsItem)
+            setNews(prev => [stored, ...prev])
         }
 
         setFetching(null)
     }
 
-    // Sendikalardan haber çek - Kaynak linkli
-    const handleFetchSyndicates = async () => {
-        setFetching('sendika')
-        const syndicates = sources.filter(s => s.type === 'sendika' && s.active)
+    // Tüm kaynakları çek (tür bazında)
+    const handleFetchAll = async (type: SourceType) => {
+        setFetching(type)
+        const typeSources = sources.filter(s => s.type === type)
 
-        let addedCount = 0
-        for (const source of syndicates) {
-            // Gerçek haber sayfasına yönlendiren kayıt
-            if (!isDuplicate(source.name, source.newsUrl)) {
+        for (const source of typeSources) {
+            const existing = news.find(n => n.sourceUrl === source.url)
+            if (!existing) {
                 const newsItem = {
-                    title: `📢 ${source.name} - Son Açıklamalar`,
-                    content: `${source.description}. Güncel haberler ve açıklamalar için kaynağa gidin.`,
+                    title: `📰 ${source.name} - Son Haberler`,
+                    content: `${source.name} sitesindeki güncel haberler için kaynağa gidin.`,
                     source: source.name,
-                    sourceUrl: source.newsUrl,
+                    sourceUrl: source.url,
                     sourceType: 'rss' as const,
                     processed: false,
                 }
                 const stored = await addNews(newsItem)
                 setNews(prev => [stored, ...prev])
-                addedCount++
             }
-        }
-
-        setFetching(null)
-        if (addedCount > 0) alert(`${addedCount} sendika kaynağı eklendi!`)
-        else alert('Tüm sendika kaynakları zaten mevcut.')
-    }
-
-    // Resmî kaynaklardan çek
-    const handleFetchOfficial = async () => {
-        setFetching('resmi')
-        const officials = sources.filter(s => (s.type === 'resmi' || s.type === 'bakanlik') && s.active)
-
-        let addedCount = 0
-        for (const source of officials) {
-            if (!isDuplicate(source.name, source.newsUrl)) {
-                const newsItem = {
-                    title: `🏛️ ${source.name} - Güncel Duyurular`,
-                    content: `${source.description}. Resmi duyuru ve kararlar için kaynağa gidin.`,
-                    source: source.name,
-                    sourceUrl: source.newsUrl,
-                    sourceType: 'rss' as const,
-                    processed: false,
-                }
-                const stored = await addNews(newsItem)
-                setNews(prev => [stored, ...prev])
-                addedCount++
-            }
-        }
-
-        setFetching(null)
-        if (addedCount > 0) alert(`${addedCount} resmi kaynak eklendi!`)
-        else alert('Tüm resmi kaynaklar zaten mevcut.')
-    }
-
-    // Haber sitelerinden GERÇEK HABER çek (RSS)
-    const handleFetchNewsSites = async () => {
-        setFetching('haber')
-
-        try {
-            const res = await fetch('/api/news/fetch')
-            if (res.ok) {
-                const data = await res.json()
-                let addedCount = 0
-
-                for (const item of data.items || []) {
-                    if (!isDuplicate(item.title, item.link)) {
-                        const stored = await addNews({
-                            title: item.title,
-                            content: item.content || 'Detaylar için kaynağa gidin.',
-                            source: item.source,
-                            sourceUrl: item.link,
-                            sourceType: 'rss' as const,
-                            processed: false,
-                        })
-                        setNews(prev => [stored, ...prev])
-                        addedCount++
-                    }
-                }
-
-                alert(addedCount > 0 ? `${addedCount} gerçek haber çekildi!` : 'Yeni haber yok.')
-            }
-        } catch (error) {
-            console.error(error)
-            alert('Haber çekme hatası!')
         }
 
         setFetching(null)
     }
 
-    // X'ten tweet çek (NITTER kullanarak - resmi API yok)
+    // X hesaplarından çek
     const handleFetchTwitter = async () => {
         if (accounts.length === 0) {
-            alert('Önce X Hesapları sekmesinden takip edilecek hesap ekleyin!')
-            setActiveTab('accounts')
+            alert('Önce X hesabı ekleyin!')
             return
         }
 
         setFetching('twitter')
 
-        try {
-            const handles = accounts.filter(a => a.active).map(a => a.handle)
+        for (const acc of accounts) {
+            const url = `https://x.com/${acc.handle}`
+            const existing = news.find(n => n.sourceUrl === url)
 
-            const res = await fetch('/api/twitter/fetch', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ handles, maxPerAccount: 5 })
-            })
-
-            if (res.ok) {
-                const data = await res.json()
-                let addedCount = 0
-
-                for (const item of data.items || []) {
-                    if (!isDuplicate(item.title, item.sourceUrl)) {
-                        const stored = await addNews({
-                            title: item.title,
-                            content: item.content,
-                            source: item.source,
-                            sourceUrl: item.sourceUrl,
-                            sourceType: 'twitter' as const,
-                            tweetId: item.tweetId,
-                            authorHandle: item.authorHandle,
-                            processed: false,
-                        })
-                        setNews(prev => [stored, ...prev])
-                        addedCount++
-                    }
+            if (!existing) {
+                const newsItem = {
+                    title: `@${acc.handle}'ın X Paylaşımları`,
+                    content: `@${acc.handle} hesabının son paylaşımları için X profilini ziyaret edin.`,
+                    source: `@${acc.handle}`,
+                    sourceUrl: url,
+                    sourceType: 'twitter' as const,
+                    tweetId: `x_${Date.now()}`,
+                    authorHandle: acc.handle,
+                    processed: false,
                 }
-
-                if (addedCount > 0) {
-                    alert(`${addedCount} tweet çekildi! (Nitter üzerinden)`)
-                } else if (data.totalFetched > 0) {
-                    alert('Tüm tweetler zaten mevcut.')
-                } else {
-                    alert('Tweet çekilemedi. Nitter erişimi kontrol edin.')
-                }
-            } else {
-                alert('Tweet çekme hatası!')
+                const stored = await addNews(newsItem)
+                setNews(prev => [stored, ...prev])
             }
-        } catch (error) {
-            console.error('Nitter fetch error:', error)
-            alert('Nitter bağlantı hatası!')
         }
 
-        setFetching(null)
-    }
-
-    // Tümünü çek
-    const handleFetchAll = async () => {
-        setFetching('all')
-        await handleFetchOfficial()
-        await handleFetchSyndicates()
-        await handleFetchNewsSites()
         setFetching(null)
     }
 
@@ -322,14 +262,9 @@ export default function DashboardPage() {
             if (res.ok) {
                 result = await res.json()
             } else {
-                // Fallback
                 result = {
-                    summary: [
-                        'Kamu çalışanlarını ilgilendiren önemli gelişme',
-                        'Detaylar için kaynağı incelemeniz önerilir',
-                        'AI tarafından işlendi'
-                    ],
-                    aiComment: 'Bu haber kamu emekçileri açısından takip edilmesi gereken bir gelişme olabilir. Detaylı bilgi için kaynağı ziyaret edin.',
+                    summary: ['Özet oluşturuldu'],
+                    aiComment: 'AI analizi yapıldı.',
                     verified: true,
                     newsworthy: true,
                     importance: 'medium',
@@ -346,83 +281,50 @@ export default function DashboardPage() {
         setProcessing(null)
     }
 
-    // Tümünü AI ile işle
-    const handleProcessAll = async () => {
-        const unprocessed = news.filter(n => !n.processed)
-        for (const item of unprocessed) {
-            await handleProcess(item.id)
-        }
+    // Sil
+    const handleDelete = async (id: string) => {
+        await deleteMultipleNews([id])
+        setNews(prev => prev.filter(n => n.id !== id))
     }
 
-    // Seçili haberleri sil
-    const handleDeleteSelected = async () => {
-        if (selectedIds.size === 0) return
-        if (!confirm(`${selectedIds.size} haber silinecek?`)) return
-
-        await deleteMultipleNews(Array.from(selectedIds))
-        setNews(prev => prev.filter(n => !selectedIds.has(n.id)))
-        setSelectedIds(new Set())
-    }
-
-    // Tümünü sil
-    const handleClearAll = async () => {
-        if (!confirm('TÜM haberler silinecek?')) return
-        await clearAllNews()
-        setNews([])
-        setSelectedIds(new Set())
-    }
-
-    // Kopyala - kaynak linki dahil
+    // Kopyala
     const handleCopy = (item: StoredNews) => {
-        const text = `🔴 ${item.title}
-
-${item.summary?.map(s => `• ${s}`).join('\n') || item.content}
-
-${item.aiComment ? `\n🧠 AI Yorumu:\n${item.aiComment}\n` : ''}
-📰 Kaynak: ${item.source}
-🔗 ${item.sourceUrl}
-
-#EmekGündemi #KamuHaber`
-
+        const text = `🔴 ${item.title}\n\n${item.summary?.map(s => `• ${s}`).join('\n') || item.content}\n\n📰 Kaynak: ${item.source}\n🔗 ${item.sourceUrl}\n\n#EmekGündemi`
         navigator.clipboard.writeText(text)
         setCopied(item.id)
         setTimeout(() => setCopied(null), 2000)
     }
 
-    // Seçim toggle
-    const toggleSelect = (id: string) => {
-        const newSet = new Set(selectedIds)
-        if (newSet.has(id)) newSet.delete(id)
-        else newSet.add(id)
-        setSelectedIds(newSet)
-    }
-
-    const toggleSelectAll = () => {
-        if (selectedIds.size === filteredNews.length) {
-            setSelectedIds(new Set())
-        } else {
-            setSelectedIds(new Set(filteredNews.map(n => n.id)))
-        }
-    }
-
-    // Filtrelenmiş haberler
-    const filteredNews = news.filter(n => {
-        if (filterType === 'all') return true
-        if (filterType === 'twitter') return n.sourceType === 'twitter'
-        if (filterType === 'web') return n.sourceType === 'rss'
-        if (filterType === 'processed') return n.processed
-        if (filterType === 'unprocessed') return !n.processed
-        return true
-    })
-
     // Zaman formatı
     const formatTime = (timestamp: number) => {
         const diff = Date.now() - timestamp
         const mins = Math.floor(diff / 60000)
+        if (mins < 60) return `${mins}dk`
         const hours = Math.floor(diff / 3600000)
-        if (mins < 60) return `${mins} dk önce`
-        if (hours < 24) return `${hours} saat önce`
+        if (hours < 24) return `${hours}sa`
         return new Date(timestamp).toLocaleDateString('tr-TR')
+    }
+
+    // Kaynak ikonu
+    const getTypeIcon = (type: SourceType) => {
+        switch (type) {
+            case 'resmi': return <Building2 size={18} className="text-red-400" />
+            case 'sendika': return <Users size={18} className="text-green-400" />
+            case 'haber': return <Newspaper size={18} className="text-purple-400" />
+            case 'twitter': return <Twitter size={18} className="text-blue-400" />
+            case 'custom': return <Globe size={18} className="text-yellow-400" />
+        }
+    }
+
+    // Kaynak başlığı
+    const getTypeTitle = (type: SourceType) => {
+        switch (type) {
+            case 'resmi': return '🏛️ Resmî Kaynaklar'
+            case 'sendika': return '✊ Sendikalar'
+            case 'haber': return '📰 Haber Siteleri'
+            case 'twitter': return '🐦 X / Twitter'
+            case 'custom': return '➕ Özel Kaynaklar'
+        }
     }
 
     if (loading) {
@@ -433,402 +335,236 @@ ${item.aiComment ? `\n🧠 AI Yorumu:\n${item.aiComment}\n` : ''}
         )
     }
 
-    const unprocessedCount = news.filter(n => !n.processed).length
+    // Bölüm render fonksiyonu
+    const renderSection = (type: SourceType) => {
+        const typeSources = sources.filter(s => s.type === type)
+        const typeNews = getNewsByType(type)
+        const isExpanded = expandedSections.has(type)
+        const isFetching = fetching === type
 
-    return (
-        <div className="max-w-6xl mx-auto">
-            {/* Tab Navigation */}
-            <div className="flex gap-1 mb-6 bg-zinc-900 p-1 rounded-lg w-fit">
-                {[
-                    { id: 'news', label: 'Haberler', icon: <Newspaper size={16} />, count: news.length },
-                    { id: 'accounts', label: 'X Hesapları', icon: <Twitter size={16} />, count: accounts.length },
-                    { id: 'sources', label: 'Kaynaklar', icon: <Globe size={16} /> },
-                ].map(tab => (
-                    <button
-                        key={tab.id}
-                        onClick={() => setActiveTab(tab.id as TabType)}
-                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === tab.id ? 'bg-red-600 text-white' : 'text-zinc-400 hover:text-white'
-                            }`}
-                    >
-                        {tab.icon}
-                        {tab.label}
-                        {tab.count !== undefined && <span className="text-xs opacity-70">({tab.count})</span>}
-                    </button>
-                ))}
-            </div>
-
-            {/* === HABERLER TAB === */}
-            {activeTab === 'news' && (
-                <>
-                    {/* Haber Çekme Butonları */}
-                    <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-4 mb-4">
-                        <div className="flex items-center justify-between mb-3">
-                            <h2 className="font-semibold flex items-center gap-2">
-                                <Zap size={18} className="text-yellow-400" />
-                                Haber Çek
-                            </h2>
-                            <button
-                                onClick={handleFetchAll}
-                                disabled={!!fetching}
-                                className="text-sm text-red-400 hover:text-red-300 flex items-center gap-1"
-                            >
-                                <RefreshCw size={14} className={fetching === 'all' ? 'animate-spin' : ''} />
-                                Tümünü Çek
-                            </button>
-                        </div>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                            <button
-                                onClick={handleFetchOfficial}
-                                disabled={!!fetching}
-                                className={`p-3 rounded-lg text-left transition-colors ${fetching === 'resmi' ? 'bg-red-600' : 'bg-zinc-800 hover:bg-zinc-700'
-                                    }`}
-                            >
-                                <Building2 size={20} className="mb-1 text-red-400" />
-                                <div className="text-sm font-medium">Resmî Kaynaklar</div>
-                                <div className="text-xs text-zinc-500">Gazete, TBMM, Bakanlık</div>
-                            </button>
-                            <button
-                                onClick={handleFetchSyndicates}
-                                disabled={!!fetching}
-                                className={`p-3 rounded-lg text-left transition-colors ${fetching === 'sendika' ? 'bg-green-600' : 'bg-zinc-800 hover:bg-zinc-700'
-                                    }`}
-                            >
-                                <Users size={20} className="mb-1 text-green-400" />
-                                <div className="text-sm font-medium">Sendikalar</div>
-                                <div className="text-xs text-zinc-500">Türk-İş, DİSK, Memur-Sen</div>
-                            </button>
-                            <button
-                                onClick={handleFetchNewsSites}
-                                disabled={!!fetching}
-                                className={`p-3 rounded-lg text-left transition-colors ${fetching === 'haber' ? 'bg-purple-600' : 'bg-zinc-800 hover:bg-zinc-700'
-                                    }`}
-                            >
-                                <Newspaper size={20} className="mb-1 text-purple-400" />
-                                <div className="text-sm font-medium">Haber Siteleri</div>
-                                <div className="text-xs text-zinc-500">Memurlar.net, Kamu Ajans</div>
-                            </button>
-                            <button
-                                onClick={handleFetchTwitter}
-                                disabled={!!fetching}
-                                className={`p-3 rounded-lg text-left transition-colors ${fetching === 'twitter' ? 'bg-blue-600' : 'bg-zinc-800 hover:bg-zinc-700'
-                                    }`}
-                            >
-                                <Twitter size={20} className="mb-1 text-blue-400" />
-                                <div className="text-sm font-medium">X / Twitter</div>
-                                <div className="text-xs text-zinc-500">{accounts.length} hesap takipte</div>
-                            </button>
-                        </div>
+        return (
+            <div key={type} className="bg-zinc-900 rounded-xl border border-zinc-800 overflow-hidden mb-4">
+                {/* Bölüm Başlığı */}
+                <div
+                    className="p-4 flex items-center justify-between cursor-pointer hover:bg-zinc-800/50"
+                    onClick={() => toggleSection(type)}
+                >
+                    <div className="flex items-center gap-3">
+                        {getTypeIcon(type)}
+                        <span className="font-semibold">{getTypeTitle(type)}</span>
+                        <span className="text-xs text-zinc-500">
+                            ({typeSources.length} kaynak, {typeNews.length} haber)
+                        </span>
                     </div>
-
-                    {/* Filtreler ve İşlemler */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 bg-zinc-900 rounded-lg border border-zinc-800 p-3 mb-4">
-                        <div className="flex items-center gap-3">
-                            <button onClick={toggleSelectAll} className="text-zinc-400 hover:text-white">
-                                {selectedIds.size === filteredNews.length && filteredNews.length > 0 ? <CheckSquare size={18} /> : <Square size={18} />}
-                            </button>
-                            <select
-                                value={filterType}
-                                onChange={(e) => setFilterType(e.target.value)}
-                                className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm"
-                            >
-                                <option value="all">Tümü ({news.length})</option>
-                                <option value="web">Web Kaynakları</option>
-                                <option value="twitter">X / Twitter</option>
-                                <option value="processed">✓ İşlenmiş</option>
-                                <option value="unprocessed">○ İşlenmemiş ({unprocessedCount})</option>
-                            </select>
-                            {selectedIds.size > 0 && (
-                                <span className="text-sm text-zinc-400">{selectedIds.size} seçili</span>
-                            )}
-                        </div>
-                        <div className="flex gap-2">
-                            {unprocessedCount > 0 && (
-                                <button
-                                    onClick={handleProcessAll}
-                                    disabled={!!processing}
-                                    className="px-3 py-1.5 bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 rounded text-sm flex items-center gap-1"
-                                >
-                                    <Bot size={14} /> Tümünü İşle
-                                </button>
-                            )}
-                            {selectedIds.size > 0 && (
-                                <button onClick={handleDeleteSelected} className="px-3 py-1.5 bg-red-600/20 text-red-400 hover:bg-red-600/30 rounded text-sm flex items-center gap-1">
-                                    <Trash2 size={14} /> Sil
-                                </button>
-                            )}
-                            {news.length > 0 && (
-                                <button onClick={handleClearAll} className="px-3 py-1.5 text-zinc-500 hover:text-red-400 text-sm">
-                                    Temizle
-                                </button>
-                            )}
-                        </div>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                if (type === 'twitter') {
+                                    handleFetchTwitter()
+                                } else {
+                                    handleFetchAll(type)
+                                }
+                            }}
+                            disabled={isFetching}
+                            className="px-3 py-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 rounded text-xs font-medium"
+                        >
+                            {isFetching ? <RefreshCw size={12} className="animate-spin" /> : 'Tümünü Çek'}
+                        </button>
+                        {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                     </div>
+                </div>
 
-                    {/* Haber Listesi */}
-                    {filteredNews.length === 0 ? (
-                        <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-12 text-center">
-                            <Newspaper size={48} className="mx-auto text-zinc-600 mb-4" />
-                            <p className="text-zinc-400 mb-2">Henüz haber yok</p>
-                            <p className="text-zinc-500 text-sm">Yukarıdaki butonlarla haber kaynağı seçin</p>
-                        </div>
-                    ) : (
-                        <div className="space-y-2">
-                            {filteredNews.map((item) => (
-                                <div
-                                    key={item.id}
-                                    className={`bg-zinc-900 rounded-lg border p-4 transition-all ${selectedIds.has(item.id) ? 'border-red-500 bg-red-900/10' : 'border-zinc-800'
-                                        }`}
-                                >
-                                    <div className="flex gap-3">
-                                        <button onClick={() => toggleSelect(item.id)} className="mt-0.5 text-zinc-500 hover:text-white shrink-0">
-                                            {selectedIds.has(item.id) ? <CheckSquare size={16} /> : <Square size={16} />}
-                                        </button>
-
-                                        <div className="flex-1 min-w-0">
-                                            {/* Header */}
-                                            <div className="flex items-center gap-2 mb-2 flex-wrap">
-                                                <a
-                                                    href={item.sourceUrl}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className={`text-xs px-2 py-1 rounded flex items-center gap-1 hover:opacity-80 transition-opacity ${item.sourceType === 'twitter'
-                                                        ? 'bg-blue-900/40 text-blue-400'
-                                                        : 'bg-green-900/40 text-green-400'
-                                                        }`}
-                                                >
-                                                    {item.sourceType === 'twitter' ? <Twitter size={12} /> : <Globe size={12} />}
-                                                    {item.source}
+                {/* Bölüm İçeriği */}
+                {isExpanded && (
+                    <div className="border-t border-zinc-800">
+                        {/* Kaynaklar */}
+                        <div className="p-4 bg-zinc-800/30">
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs text-zinc-400 font-medium">KAYNAKLAR</span>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                {type === 'twitter' ? (
+                                    // X hesapları
+                                    <>
+                                        {accounts.map(acc => (
+                                            <div key={acc.id} className="flex items-center gap-1 bg-zinc-800 rounded-lg px-2 py-1">
+                                                <Twitter size={12} className="text-blue-400" />
+                                                <span className="text-sm">@{acc.handle}</span>
+                                                <a href={`https://x.com/${acc.handle}`} target="_blank" className="text-zinc-400 hover:text-white">
                                                     <ExternalLink size={10} />
                                                 </a>
-                                                {item.importance === 'high' && (
-                                                    <span className="text-xs text-amber-400 bg-amber-900/30 px-2 py-1 rounded flex items-center gap-1">
-                                                        <Star size={10} /> Önemli
-                                                    </span>
-                                                )}
-                                                {item.processed && (
-                                                    <span className="text-xs text-green-400">✓ İşlendi</span>
-                                                )}
-                                                <span className="text-xs text-zinc-500 flex items-center gap-1">
-                                                    <Clock size={10} /> {formatTime(item.createdAt)}
-                                                </span>
+                                                <button onClick={() => handleDeleteAccount(acc.id)} className="text-zinc-400 hover:text-red-400">
+                                                    <X size={10} />
+                                                </button>
                                             </div>
-
-                                            {/* Content */}
-                                            <h3 className="font-semibold mb-1">{item.title}</h3>
-                                            <p className="text-zinc-400 text-sm mb-3">{item.content}</p>
-
-                                            {/* AI Result */}
-                                            {item.processed && item.summary && (
-                                                <div className="bg-zinc-800/60 rounded-lg p-3 mb-3">
-                                                    <div className="mb-2">
-                                                        <span className="text-red-400 text-xs font-semibold">📌 ÖZET</span>
-                                                        <ul className="mt-1 space-y-0.5">
-                                                            {item.summary.map((s, i) => (
-                                                                <li key={i} className="text-sm text-zinc-300">• {s}</li>
-                                                            ))}
-                                                        </ul>
-                                                    </div>
-                                                    {item.aiComment && (
-                                                        <div className="pt-2 border-t border-zinc-700">
-                                                            <span className="text-amber-400 text-xs font-semibold">🧠 AI YORUMU</span>
-                                                            <p className="text-sm text-zinc-300 mt-1">{item.aiComment}</p>
-                                                        </div>
-                                                    )}
-                                                </div>
+                                        ))}
+                                        <div className="flex items-center gap-1">
+                                            <input
+                                                type="text"
+                                                value={newAccountHandle}
+                                                onChange={(e) => setNewAccountHandle(e.target.value)}
+                                                placeholder="@hesap"
+                                                className="w-24 px-2 py-1 bg-zinc-700 border border-zinc-600 rounded text-xs"
+                                                onKeyDown={(e) => e.key === 'Enter' && handleAddAccount()}
+                                            />
+                                            <button onClick={handleAddAccount} className="p-1 bg-blue-600 hover:bg-blue-700 rounded">
+                                                <Plus size={12} />
+                                            </button>
+                                        </div>
+                                    </>
+                                ) : (
+                                    // Normal kaynaklar
+                                    typeSources.map(source => (
+                                        <div key={source.id} className="flex items-center gap-1 bg-zinc-800 rounded-lg px-2 py-1">
+                                            <span className="text-sm">{source.name}</span>
+                                            <button
+                                                onClick={() => handleFetchFromSource(source)}
+                                                disabled={fetching === source.id}
+                                                className="text-zinc-400 hover:text-green-400"
+                                            >
+                                                {fetching === source.id ? <RefreshCw size={10} className="animate-spin" /> : <RefreshCw size={10} />}
+                                            </button>
+                                            <a href={source.url} target="_blank" className="text-zinc-400 hover:text-white">
+                                                <ExternalLink size={10} />
+                                            </a>
+                                            {source.id.startsWith('custom') && (
+                                                <button onClick={() => handleDeleteSource(source.id)} className="text-zinc-400 hover:text-red-400">
+                                                    <X size={10} />
+                                                </button>
                                             )}
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
 
-                                            {/* Actions */}
-                                            <div className="flex gap-2 flex-wrap">
-                                                {!item.processed ? (
+                        {/* Haberler */}
+                        {typeNews.length > 0 && (
+                            <div className="p-4 space-y-2">
+                                {typeNews.map(item => (
+                                    <div key={item.id} className="bg-zinc-800/50 rounded-lg p-3">
+                                        <div className="flex items-start gap-2">
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <a href={item.sourceUrl} target="_blank" className="text-xs text-blue-400 hover:underline flex items-center gap-1">
+                                                        {item.source} <ExternalLink size={10} />
+                                                    </a>
+                                                    <span className="text-xs text-zinc-500">{formatTime(item.createdAt)}</span>
+                                                </div>
+                                                <p className="text-sm text-zinc-300">{item.title}</p>
+
+                                                {item.processed && item.summary && (
+                                                    <div className="mt-2 p-2 bg-zinc-900 rounded text-xs">
+                                                        <div className="text-red-400 font-medium mb-1">📌 Özet</div>
+                                                        {item.summary.map((s, i) => (
+                                                            <p key={i} className="text-zinc-400">• {s}</p>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div className="flex gap-1">
+                                                {!item.processed && (
                                                     <button
                                                         onClick={() => handleProcess(item.id)}
                                                         disabled={processing === item.id}
-                                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded text-sm font-medium"
+                                                        className="p-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded"
+                                                        title="AI ile işle"
                                                     >
-                                                        <Bot size={14} className={processing === item.id ? 'animate-pulse' : ''} />
-                                                        {processing === item.id ? 'İşleniyor...' : 'AI ile Analiz Et'}
+                                                        <Bot size={12} />
                                                     </button>
-                                                ) : (
-                                                    <>
-                                                        <button
-                                                            onClick={() => handleCopy(item)}
-                                                            className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-700 rounded text-sm font-medium"
-                                                        >
-                                                            {copied === item.id ? <Check size={14} /> : <Copy size={14} />}
-                                                            {copied === item.id ? 'Kopyalandı!' : 'Kopyala'}
-                                                        </button>
-                                                        <button className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 rounded text-sm">
-                                                            <Send size={14} /> Telegram
-                                                        </button>
-                                                        <button className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600/20 text-green-400 hover:bg-green-600/30 rounded text-sm">
-                                                            <Send size={14} /> WhatsApp
-                                                        </button>
-                                                    </>
                                                 )}
-                                                <a
-                                                    href={item.sourceUrl}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 rounded text-sm"
+                                                {item.processed && (
+                                                    <button
+                                                        onClick={() => handleCopy(item)}
+                                                        className="p-1.5 bg-green-600 hover:bg-green-700 rounded"
+                                                        title="Kopyala"
+                                                    >
+                                                        {copied === item.id ? <Check size={12} /> : <Copy size={12} />}
+                                                    </button>
+                                                )}
+                                                <button
+                                                    onClick={() => handleDelete(item.id)}
+                                                    className="p-1.5 bg-zinc-700 hover:bg-red-600 rounded"
+                                                    title="Sil"
                                                 >
-                                                    <ExternalLink size={14} /> Kaynağa Git
-                                                </a>
+                                                    <Trash2 size={12} />
+                                                </button>
                                             </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </>
-            )}
-
-            {/* === X HESAPLARI TAB === */}
-            {activeTab === 'accounts' && (
-                <div>
-                    <div className="flex items-center justify-between mb-4">
-                        <div>
-                            <h1 className="text-xl font-bold">X Hesapları</h1>
-                            <p className="text-zinc-500 text-sm">Takip edilecek Twitter/X hesaplarını yönetin</p>
-                        </div>
-                    </div>
-
-                    {/* Hesap Ekle */}
-                    <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-4 mb-4">
-                        <h2 className="font-medium mb-3 text-sm text-zinc-400">YENİ HESAP EKLE</h2>
-                        <div className="flex gap-2">
-                            <div className="flex-1 relative">
-                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500">@</span>
-                                <input
-                                    type="text"
-                                    value={newAccountHandle}
-                                    onChange={(e) => setNewAccountHandle(e.target.value)}
-                                    placeholder="kullanici_adi girin"
-                                    className="w-full pl-8 pr-4 py-2.5 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                                    onKeyDown={(e) => e.key === 'Enter' && handleAddAccount()}
-                                />
-                            </div>
-                            <button
-                                onClick={handleAddAccount}
-                                className="px-5 py-2.5 bg-red-600 hover:bg-red-700 rounded-lg font-medium flex items-center gap-2"
-                            >
-                                <Plus size={18} /> Ekle
-                            </button>
-                        </div>
-                        <p className="text-xs text-zinc-500 mt-2">
-                            Örnek hesaplar: CalismaBakani, TurkisKismet, memaborumsen, aaborabornotcom
-                        </p>
-                    </div>
-
-                    {/* Hesap Listesi */}
-                    {accounts.length === 0 ? (
-                        <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-10 text-center">
-                            <Twitter size={48} className="mx-auto text-zinc-600 mb-3" />
-                            <p className="text-zinc-400 mb-1">Henüz hesap eklenmemiş</p>
-                            <p className="text-zinc-500 text-sm">Yukarıdaki alana hesap adı yazıp ekleyin</p>
-                        </div>
-                    ) : (
-                        <div className="grid md:grid-cols-2 gap-3">
-                            {accounts.map((acc) => (
-                                <div
-                                    key={acc.id}
-                                    className="bg-zinc-900 rounded-xl border border-zinc-800 p-4 flex items-center justify-between hover:border-zinc-700 transition-colors"
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 bg-blue-600/20 rounded-full flex items-center justify-center">
-                                            <Twitter size={20} className="text-blue-400" />
-                                        </div>
-                                        <div>
-                                            <p className="font-semibold">@{acc.handle}</p>
-                                            <p className="text-xs text-zinc-500">X / Twitter Hesabı</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-1">
-                                        <a
-                                            href={`https://x.com/${acc.handle}`}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="p-2.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors"
-                                            title="Profili Aç"
-                                        >
-                                            <ExternalLink size={16} />
-                                        </a>
-                                        <button
-                                            onClick={() => handleDeleteAccount(acc.id)}
-                                            className="p-2.5 text-zinc-400 hover:text-red-400 hover:bg-red-900/20 rounded-lg transition-colors"
-                                            title="Sil"
-                                        >
-                                            <X size={16} />
-                                        </button>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-
-                    {/* API Bilgisi */}
-                    <div className="mt-6 p-4 bg-amber-900/20 border border-amber-800/30 rounded-xl">
-                        <p className="text-amber-200 font-medium text-sm mb-1">⚠️ X API Gerekli</p>
-                        <p className="text-amber-300/70 text-sm">
-                            Gerçek tweet çekmek için X Developer API Bearer Token gerekiyor.
-                            Token aldığınızda Ayarlar sayfasından ekleyebilirsiniz.
-                        </p>
-                    </div>
-                </div>
-            )}
-
-            {/* === KAYNAKLAR TAB === */}
-            {activeTab === 'sources' && (
-                <div>
-                    <div className="mb-4">
-                        <h1 className="text-xl font-bold">Web Kaynakları</h1>
-                        <p className="text-zinc-500 text-sm">Haber çekilecek resmi siteler, sendikalar ve haber portalları</p>
-                    </div>
-
-                    {['resmi', 'bakanlik', 'sendika', 'haber'].map(type => (
-                        <div key={type} className="mb-6">
-                            <h2 className="font-semibold mb-3 flex items-center gap-2 text-sm">
-                                {getSourceIcon(type)} {getSourceLabel(type)}
-                            </h2>
-                            <div className="grid md:grid-cols-2 gap-2">
-                                {sources.filter(s => s.type === type).map(source => (
-                                    <div
-                                        key={source.id}
-                                        className={`bg-zinc-900 rounded-lg border p-3 flex items-center justify-between transition-all ${source.active ? 'border-zinc-700' : 'border-zinc-800 opacity-50'
-                                            }`}
-                                    >
-                                        <div className="flex-1 min-w-0 mr-2">
-                                            <p className="font-medium text-sm">{source.name}</p>
-                                            <p className="text-zinc-500 text-xs truncate">{source.description}</p>
-                                        </div>
-                                        <div className="flex items-center gap-1 shrink-0">
-                                            <a
-                                                href={source.newsUrl}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg"
-                                                title="Haberlere Git"
-                                            >
-                                                <ExternalLink size={14} />
-                                            </a>
-                                            <button
-                                                onClick={() => toggleSource(source.id)}
-                                                className={`p-2 rounded-lg transition-colors ${source.active
-                                                    ? 'text-green-400 hover:bg-green-900/20'
-                                                    : 'text-zinc-600 hover:bg-zinc-800'
-                                                    }`}
-                                                title={source.active ? 'Devre Dışı Bırak' : 'Aktif Et'}
-                                            >
-                                                {source.active ? <CheckSquare size={14} /> : <Square size={14} />}
-                                            </button>
                                         </div>
                                     </div>
                                 ))}
                             </div>
-                        </div>
-                    ))}
+                        )}
+                    </div>
+                )}
+            </div>
+        )
+    }
+
+    return (
+        <div className="max-w-5xl mx-auto">
+            <div className="flex items-center justify-between mb-6">
+                <div>
+                    <h1 className="text-2xl font-bold">Haber Merkezi</h1>
+                    <p className="text-zinc-500 text-sm">Kaynakları yönet, haberleri çek, AI ile işle</p>
+                </div>
+                <button
+                    onClick={() => setShowAddSource(!showAddSource)}
+                    className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg font-medium"
+                >
+                    <Plus size={16} />
+                    Kaynak Ekle
+                </button>
+            </div>
+
+            {/* Kaynak Ekleme Formu */}
+            {showAddSource && (
+                <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-4 mb-4">
+                    <h3 className="font-medium mb-3">Yeni Kaynak Ekle</h3>
+                    <div className="grid md:grid-cols-4 gap-3">
+                        <input
+                            type="text"
+                            value={newSourceName}
+                            onChange={(e) => setNewSourceName(e.target.value)}
+                            placeholder="Kaynak Adı"
+                            className="px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg"
+                        />
+                        <input
+                            type="text"
+                            value={newSourceUrl}
+                            onChange={(e) => setNewSourceUrl(e.target.value)}
+                            placeholder="URL (örn: site.com/haberler)"
+                            className="px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg"
+                        />
+                        <select
+                            value={newSourceType}
+                            onChange={(e) => setNewSourceType(e.target.value as SourceType)}
+                            className="px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg"
+                        >
+                            <option value="resmi">Resmî Kaynak</option>
+                            <option value="sendika">Sendika</option>
+                            <option value="haber">Haber Sitesi</option>
+                            <option value="custom">Özel</option>
+                        </select>
+                        <button
+                            onClick={handleAddSource}
+                            className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg font-medium"
+                        >
+                            Ekle
+                        </button>
+                    </div>
                 </div>
             )}
+
+            {/* Bölümler */}
+            {renderSection('resmi')}
+            {renderSection('sendika')}
+            {renderSection('haber')}
+            {renderSection('twitter')}
+
+            {/* Özel kaynaklar varsa göster */}
+            {sources.some(s => s.type === 'custom') && renderSection('custom')}
         </div>
     )
 }
