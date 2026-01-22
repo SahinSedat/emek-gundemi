@@ -2,13 +2,9 @@ import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { createHash } from 'crypto'
 
-// Basit admin kimlik bilgileri (gerçek uygulamada veritabanından gelecek)
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@emekgundemi.com'
-const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH || hashPassword('admin123') // Değiştirin!
-
-function hashPassword(password: string): string {
-    return createHash('sha256').update(password).digest('hex')
-}
+// Admin giriş bilgileri
+const ADMIN_EMAIL = 'sdat.sahin@gmail.com'
+const ADMIN_PASSWORD = 'Kamulog.34'
 
 function generateToken(): string {
     return createHash('sha256').update(Date.now().toString() + Math.random().toString()).digest('hex')
@@ -26,9 +22,7 @@ export async function POST(request: Request) {
         }
 
         // Kimlik doğrulama
-        const passwordHash = hashPassword(password)
-
-        if (email !== ADMIN_EMAIL || passwordHash !== ADMIN_PASSWORD_HASH) {
+        if (email !== ADMIN_EMAIL || password !== ADMIN_PASSWORD) {
             return NextResponse.json(
                 { error: 'E-posta veya şifre hatalı' },
                 { status: 401 }
@@ -42,14 +36,11 @@ export async function POST(request: Request) {
         // Cookie'yi ayarla (7 gün geçerli)
         cookieStore.set('auth_token', token, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
+            secure: false, // HTTP için false
             sameSite: 'lax',
-            maxAge: 60 * 60 * 24 * 7, // 7 gün
+            maxAge: 60 * 60 * 24 * 7,
             path: '/',
         })
-
-        // Token'ı geçici olarak kaydet (gerçek uygulamada Redis veya DB)
-        // Bu basit implementasyonda cookie varlığı yeterli olacak
 
         return NextResponse.json({
             success: true,
