@@ -4,6 +4,14 @@ import { NextResponse } from 'next/server'
  * GET /api/next-post
  * Cron job için bir sonraki haberi döndürür
  * Plain text format - direkt Telegram'a gönderilebilir
+ * 
+ * FORMAT:
+ * 🟢 BAŞLIK
+ * • Madde 1
+ * • Madde 2
+ * • Madde 3
+ * 📌 Kaynak: Kaynak Adı
+ * 🔗 Kaynağa Git
  */
 
 // Paylaşılan haberler (duplicate kontrolü)
@@ -23,11 +31,9 @@ function isDuplicate(title: string): boolean {
 function markPublished(title: string): void {
     const key = title.toLowerCase().slice(0, 40)
     publishedTitles.add(key)
-
-    // Max 100 haber tut
     if (publishedTitles.size > 100) {
         const first = publishedTitles.values().next().value
-        publishedTitles.delete(first)
+        if (first) publishedTitles.delete(first)
     }
 }
 
@@ -49,25 +55,96 @@ async function fetchNews(): Promise<any[]> {
     return []
 }
 
-// Basit özet oluştur
-function createSummary(content: string): string[] {
-    // İlk 3 cümleyi al
-    const sentences = content.split(/[.!?]/).filter(s => s.trim().length > 20)
-    return sentences.slice(0, 3).map(s => s.trim() + '.')
-}
+// İçerikten detay çıkar - "açıklandı/belirlendi" kontrolü
+function extractDetails(content: string): string[] {
+    const details: string[] = []
 
-// Haber formatla
-function formatNewsForTelegram(title: string, content: string, source: string, link: string): string {
-    const summary = createSummary(content)
+    // Rakam içeren cümleleri bul (fiyat, ücret, tarih)
+    const sentences = content.split(/[.!?]/).filter(s => s.trim().length > 15)
 
-    let text = `🟢 <b>${title}</b>\n\n`
+    for (const sentence of sentences) {
+        const trimmed = sentence.trim()
 
-    for (const item of summary) {
-        text += `• ${item}\n`
+        // Rakam, TL, %, tarih içeriyorsa önemli
+        if (/\d+/.test(trimmed) || /TL|₺|%|yüzde/i.test(trimmed)) {
+            // Kısa ve net hale getir
+            const clean = trimmed
+                .replace(/^(.*?)(:|–|-)\s*/, '') // Başlık gibi prefixleri kaldır
+                .trim()
+
+            if (clean.length > 20 && clean.length < 150) {
+                details.push(clean)
+            }
+        }
     }
 
-    text += `\n📰 Kaynak: ${source}`
-    text += `\n🔗 <a href="${link}">Haberin Devamı</a>`
+    // Eğer rakam yoksa ilk 3 anlamlı cümleyi al
+    if (details.length === 0) {
+        for (const sentence of sentences.slice(0, 3)) {
+            const trimmed = sentence.trim()
+            if (trimmed.length > 30 && trimmed.length < 150) {
+                details.push(trimmed + '.')
+            }
+        }
+    }
+
+    return details.slice(0, 5) // Max 5 madde
+}
+
+// Haber yüzeysel mi kontrol et
+function isShallowContent(content: string, extractedDetails: string[]): boolean {
+    const shallowKeywords = ['açıklandı', 'belirlendi', 'duyuruldu', 'belli oldu']
+    const hasShallowKeyword = shallowKeywords.some(k => content.toLowerCase().includes(k))
+
+    // Yüzeysel anahtar kelime var ama detay yok
+    if (hasShallowKeyword && extractedDetails.length < 2) {
+        return true
+    }
+
+    // Detaylarda hiç rakam yok
+    const hasNumbers = extractedDetails.some(d => /\d+/.test(d))
+    if (hasShallowKeyword && !hasNumbers) {
+        return true
+    }
+
+    return false
+}
+
+// YENİ FORMAT - Telegram için haber formatla
+function formatNewsForTelegram(title: string, content: string, source: string, link: string): string | null {
+    const details = extractDetails(content)
+
+    // Yüzeysel içerik kontrolü
+    if (isShallowContent(content, details)) {
+        console.log(`Skipping shallow content: ${title}`)
+        return null
+    }
+
+    // Minimum detay kontrolü
+    if (details.length < 2) {
+        // Fallback: içerikten cümle al
+        const fallbackDetails = content.split(/[.!?]/)
+            .filter(s => s.trim().length > 30)
+            .slice(0, 3)
+            .map(s => s.trim() + '.')
+
+        if (fallbackDetails.length < 2) {
+            console.log(`Not enough details: ${title}`)
+            return null
+        }
+
+        details.push(...fallbackDetails)
+    }
+
+    // FORMAT OLUŞTUR
+    let text = `🟢 ${title}\n\n`
+
+    for (const detail of details.slice(0, 5)) {
+        text += `• ${detail}\n`
+    }
+
+    text += `\n📌 Kaynak: ${source}\n`
+    text += `\n🔗 Kaynağa Git`
 
     return text
 }
@@ -75,7 +152,7 @@ function formatNewsForTelegram(title: string, content: string, source: string, l
 export async function GET() {
     // Gece saati kontrolü
     if (isNightTime()) {
-        return new NextResponse('', { status: 204 }) // Boş döndür
+        return new NextResponse('', { status: 204 })
     }
 
     // Haberleri çek
@@ -85,33 +162,43 @@ export async function GET() {
         return new NextResponse('', { status: 204 })
     }
 
-    // İlk benzersiz haberi bul
+    // Benzersiz ve detaylı haberi bul
+    let formattedText: string | null = null
     let selectedNews = null
+
     for (const item of news) {
-        if (!isDuplicate(item.title)) {
+        if (isDuplicate(item.title)) continue
+
+        const text = formatNewsForTelegram(
+            item.title,
+            item.content,
+            item.source,
+            item.link
+        )
+
+        if (text) {
+            formattedText = text
             selectedNews = item
             break
         }
     }
 
-    if (!selectedNews) {
+    if (!formattedText || !selectedNews) {
         return new NextResponse('', { status: 204 })
     }
-
-    // Formatla
-    const text = formatNewsForTelegram(
-        selectedNews.title,
-        selectedNews.content,
-        selectedNews.source,
-        selectedNews.link
-    )
 
     // Paylaşıldı olarak işaretle
     markPublished(selectedNews.title)
 
-    // Plain text olarak döndür
-    return new NextResponse(text, {
+    // Plain text + link bilgisi döndür
+    // Cron script bu çıktıyı alıp link ile birlikte gönderecek
+    const output = JSON.stringify({
+        text: formattedText,
+        link: selectedNews.link
+    })
+
+    return new NextResponse(output, {
         status: 200,
-        headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+        headers: { 'Content-Type': 'application/json' }
     })
 }
