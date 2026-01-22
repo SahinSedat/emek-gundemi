@@ -233,7 +233,7 @@ export default function DashboardPage() {
         setFetching(null)
     }
 
-    // X'ten tweet çek (API gelince çalışacak)
+    // X'ten tweet çek (NITTER kullanarak - resmi API yok)
     const handleFetchTwitter = async () => {
         if (accounts.length === 0) {
             alert('Önce X Hesapları sekmesinden takip edilecek hesap ekleyin!')
@@ -242,35 +242,53 @@ export default function DashboardPage() {
         }
 
         setFetching('twitter')
-        let addedCount = 0
 
-        for (const acc of accounts.filter(a => a.active)) {
-            await new Promise(r => setTimeout(r, 400))
+        try {
+            const handles = accounts.filter(a => a.active).map(a => a.handle)
 
-            const tweetUrl = `https://x.com/${acc.handle}`
+            const res = await fetch('/api/twitter/fetch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ handles, maxPerAccount: 5 })
+            })
 
-            const newsItem = {
-                title: `@${acc.handle} - Son Paylaşım`,
-                content: `Bu hesabın son paylaşımlarını görmek için X profilini ziyaret edin. (Gerçek tweet çekimi için X API gerekli)`,
-                source: `@${acc.handle}`,
-                sourceUrl: tweetUrl,
-                sourceType: 'twitter' as const,
-                tweetId: `demo_${Date.now()}`,
-                authorHandle: acc.handle,
-                processed: false,
+            if (res.ok) {
+                const data = await res.json()
+                let addedCount = 0
+
+                for (const item of data.items || []) {
+                    if (!isDuplicate(item.title, item.sourceUrl)) {
+                        const stored = await addNews({
+                            title: item.title,
+                            content: item.content,
+                            source: item.source,
+                            sourceUrl: item.sourceUrl,
+                            sourceType: 'twitter' as const,
+                            tweetId: item.tweetId,
+                            authorHandle: item.authorHandle,
+                            processed: false,
+                        })
+                        setNews(prev => [stored, ...prev])
+                        addedCount++
+                    }
+                }
+
+                if (addedCount > 0) {
+                    alert(`${addedCount} tweet çekildi! (Nitter üzerinden)`)
+                } else if (data.totalFetched > 0) {
+                    alert('Tüm tweetler zaten mevcut.')
+                } else {
+                    alert('Tweet çekilemedi. Nitter erişimi kontrol edin.')
+                }
+            } else {
+                alert('Tweet çekme hatası!')
             }
-
-            if (!isDuplicate(newsItem.content, newsItem.sourceUrl)) {
-                const stored = await addNews(newsItem)
-                setNews(prev => [stored, ...prev])
-                addedCount++
-            }
+        } catch (error) {
+            console.error('Nitter fetch error:', error)
+            alert('Nitter bağlantı hatası!')
         }
 
         setFetching(null)
-        if (addedCount === 0) {
-            alert('Yeni paylaşım bulunamadı.')
-        }
     }
 
     // Tümünü çek
