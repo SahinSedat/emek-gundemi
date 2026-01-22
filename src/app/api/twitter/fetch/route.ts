@@ -1,20 +1,12 @@
 import { NextResponse } from 'next/server'
-import https from 'https'
 
 /**
- * Nitter üzerinden X/Twitter verileri çek
- * Scraping/RSS tabanlı - API yok
- * 
- * NOT: SSL sorunları için Node.js https kullanılıyor
+ * X/Twitter verileri - RSS-Bridge kullanarak
+ * Kendi sunucumuzda çalışan RSS-Bridge instance'ı
  */
 
-// Aktif Nitter instance'ları (2025 güncel)
-const NITTER_INSTANCES = [
-    'xcancel.com',           // En güvenilir
-    'nitter.privacydev.net',
-    'nitter.poast.org',
-    'nitter.net',
-]
+// RSS-Bridge local instance
+const RSS_BRIDGE_URL = 'http://localhost:8081'
 
 interface ParsedTweet {
     id: string
@@ -24,83 +16,31 @@ interface ParsedTweet {
     link: string
 }
 
-// Basit HTTP request (SSL sorunlarını bypass)
-async function fetchWithBypass(url: string): Promise<string | null> {
-    return new Promise((resolve) => {
-        const urlObj = new URL(url)
-
-        const options = {
-            hostname: urlObj.hostname,
-            path: urlObj.pathname + urlObj.search,
-            method: 'GET',
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'application/rss+xml, application/xml, text/xml, */*',
-                'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
-            },
-            timeout: 10000,
-            rejectUnauthorized: false, // SSL doğrulamasını atla
-        }
-
-        const req = https.request(options, (res) => {
-            let data = ''
-            res.on('data', chunk => data += chunk)
-            res.on('end', () => {
-                if (res.statusCode === 200) {
-                    resolve(data)
-                } else {
-                    console.log(`${urlObj.hostname} returned ${res.statusCode}`)
-                    resolve(null)
-                }
-            })
-        })
-
-        req.on('error', (err) => {
-            console.log(`${urlObj.hostname} error:`, err.message)
-            resolve(null)
-        })
-
-        req.on('timeout', () => {
-            console.log(`${urlObj.hostname} timeout`)
-            req.destroy()
-            resolve(null)
-        })
-
-        req.end()
-    })
-}
-
-// RSS XML'den tweet çıkar
-function parseTweetsFromRSS(xml: string, handle: string): ParsedTweet[] {
+// Atom feed'den tweet çıkar
+function parseTweetsFromAtom(xml: string, handle: string): ParsedTweet[] {
     const tweets: ParsedTweet[] = []
 
-    // <item> taglarını bul
-    const items = xml.match(/<item>[\s\S]*?<\/item>/gi) || []
+    // <entry> taglarını bul (Atom format)
+    const entries = xml.match(/<entry>[\s\S]*?<\/entry>/gi) || []
 
-    for (const item of items.slice(0, 5)) { // Son 5 tweet
-        const title = extractValue(item, 'title')
-        const link = extractValue(item, 'link') || extractValue(item, 'guid')
-        const pubDate = extractValue(item, 'pubDate')
-        const description = extractValue(item, 'description')
-
-        // Tweet ID çıkar
-        const idMatch = link.match(/status\/(\d+)/)
-        const id = idMatch ? idMatch[1] : Date.now().toString()
+    for (const entry of entries.slice(0, 5)) { // Son 5 tweet
+        const title = extractValue(entry, 'title')
+        const link = extractAttr(entry, 'link', 'href') || extractValue(entry, 'link')
+        const updated = extractValue(entry, 'updated') || extractValue(entry, 'published')
+        const content = extractValue(entry, 'content') || extractValue(entry, 'summary')
+        const id = extractValue(entry, 'id')
 
         // Retweet kontrolü
-        if (title.startsWith('RT ') || title.startsWith('R to @')) {
+        if (title.startsWith('RT ') || content.startsWith('RT @')) {
             continue
         }
 
-        // Link'i x.com'a çevir
-        const cleanLink = link.replace(/https?:\/\/[^/]+/, 'https://x.com')
-
         tweets.push({
-            id,
-            text: cleanHtml(description || title),
+            id: id || Date.now().toString(),
+            text: cleanHtml(content || title),
             author: handle,
-            date: pubDate,
-            link: cleanLink,
+            date: updated,
+            link: link || `https://x.com/${handle}`,
         })
     }
 
@@ -120,6 +60,13 @@ function extractValue(xml: string, tag: string): string {
     return ''
 }
 
+// XML attribute değerini çıkar
+function extractAttr(xml: string, tag: string, attr: string): string {
+    const regex = new RegExp(`<${tag}[^>]*${attr}="([^"]*)"`, 'i')
+    const match = xml.match(regex)
+    return match ? match[1] : ''
+}
+
 // HTML temizle
 function cleanHtml(text: string): string {
     return text
@@ -135,35 +82,43 @@ function cleanHtml(text: string): string {
         .trim()
 }
 
-// Nitter'dan tweet çek
-async function fetchFromNitter(handle: string): Promise<ParsedTweet[]> {
+// RSS-Bridge'den tweet çek
+async function fetchFromRSSBridge(handle: string): Promise<ParsedTweet[]> {
     const cleanHandle = handle.replace('@', '').trim()
+    const url = `${RSS_BRIDGE_URL}/?action=display&bridge=TwitterBridge&context=By+username&u=${cleanHandle}&format=Atom`
 
-    for (const instance of NITTER_INSTANCES) {
-        const url = `https://${instance}/${cleanHandle}/rss`
+    console.log(`Fetching: ${url}`)
 
-        console.log(`Trying: ${url}`)
+    try {
+        const response = await fetch(url, {
+            headers: {
+                'User-Agent': 'EmekGundemi/1.0',
+            },
+            cache: 'no-store',
+        })
 
-        const xml = await fetchWithBypass(url)
-
-        if (!xml) continue
-
-        // RSS kontrolü
-        if (!xml.includes('<item>') && !xml.includes('<entry>')) {
-            console.log(`${instance} no items found`)
-            continue
+        if (!response.ok) {
+            console.log(`RSS-Bridge returned ${response.status}`)
+            return []
         }
 
-        const tweets = parseTweetsFromRSS(xml, cleanHandle)
+        const xml = await response.text()
 
-        if (tweets.length > 0) {
-            console.log(`✓ Got ${tweets.length} tweets from ${instance} for @${cleanHandle}`)
-            return tweets
+        // Atom feed kontrolü
+        if (!xml.includes('<entry>') && !xml.includes('<item>')) {
+            console.log('No entries found in response')
+            return []
         }
+
+        const tweets = parseTweetsFromAtom(xml, cleanHandle)
+        console.log(`Got ${tweets.length} tweets for @${cleanHandle}`)
+
+        return tweets
+
+    } catch (error) {
+        console.error(`RSS-Bridge error:`, error)
+        return []
     }
-
-    console.log(`✗ No tweets found for @${cleanHandle}`)
-    return []
 }
 
 /**
@@ -181,10 +136,10 @@ export async function POST(request: Request) {
         const allTweets: ParsedTweet[] = []
 
         for (const handle of handles) {
-            // Rate limit - her hesap arasında 2 saniye
-            await new Promise(r => setTimeout(r, 2000))
+            // Rate limit - her hesap arasında 1 saniye
+            await new Promise(r => setTimeout(r, 1000))
 
-            const tweets = await fetchFromNitter(handle)
+            const tweets = await fetchFromRSSBridge(handle)
             allTweets.push(...tweets)
         }
 
