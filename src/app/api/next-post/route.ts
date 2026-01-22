@@ -9,10 +9,9 @@ import { NextResponse } from 'next/server'
 // Paylaşılan haberler (duplicate kontrolü)
 const publishedTitles: Set<string> = new Set()
 
-// Gece saati kontrolü
+// Gece saati kontrolü - DEVRE DIŞI (7/24 aktif)
 function isNightTime(): boolean {
-    const hour = new Date().getHours()
-    return hour >= 1 && hour < 7
+    return false // 7/24 paylaşım aktif
 }
 
 // Duplicate kontrolü
