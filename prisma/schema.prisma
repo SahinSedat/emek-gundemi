@@ -1,0 +1,164 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ======================= ENUMS =======================
+
+enum Platform {
+  X
+  INSTAGRAM
+  WHATSAPP
+  TELEGRAM
+}
+
+enum PostStatus {
+  PENDING
+  POSTED
+  FAILED
+}
+
+enum SourceType {
+  RSS
+  WEBPAGE
+  API
+}
+
+enum UserRole {
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+// ======================= MODELS =======================
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  role         UserRole @default(VIEWER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Category {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  icon        String   @default("FileText")
+  color       String   @default("#dc2626")
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  news News[]
+}
+
+model News {
+  id         String   @id @default(cuid())
+  title      String
+  slug       String   @unique
+  summary    String[]
+  content    String
+  aiAnalysis String?
+  source     String
+  sourceUrl  String
+  imageUrl   String?
+
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id])
+
+  relatedEntity String?
+  tags          String[]
+
+  publishedAt  DateTime?
+  originalDate DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  isPublished  Boolean @default(false)
+  isFeatured   Boolean @default(false)
+  viewCount    Int     @default(0)
+  socialShared Boolean @default(false)
+
+  socialPosts SocialPost[]
+
+  @@index([categoryId])
+  @@index([publishedAt])
+  @@index([isPublished])
+}
+
+model SocialPost {
+  id        String     @id @default(cuid())
+  newsId    String
+  news      News       @relation(fields: [newsId], references: [id], onDelete: Cascade)
+  platform  Platform
+  content   String
+  mediaUrl  String?
+  postedAt  DateTime?
+  postUrl   String?
+  status    PostStatus @default(PENDING)
+  errorMsg  String?
+  createdAt DateTime   @default(now())
+
+  @@index([newsId])
+  @@index([platform])
+}
+
+model ScrapingSource {
+  id          String     @id @default(cuid())
+  name        String
+  url         String
+  type        SourceType @default(RSS)
+  categoryId  String?
+  isActive    Boolean    @default(true)
+  scrapeFreq  Int        @default(60)
+  lastScraped DateTime?
+  lastError   String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@unique([url])
+}
+
+model SiteSettings {
+  id              String  @id @default("main")
+  siteName        String  @default("Emek Gündemi")
+  siteSlogan      String  @default("İşçinin, Memurun, Emeğin Gündemi")
+  siteDescription String?
+  logoUrl         String?
+  faviconUrl      String?
+
+  twitterUrl   String?
+  telegramUrl  String?
+  whatsappUrl  String?
+  instagramUrl String?
+
+  telegramBotToken String?
+  twitterApiKey    String?
+
+  autoPublish     Boolean @default(false)
+  autoShareSocial Boolean @default(false)
+
+  updatedAt DateTime @updatedAt
+}
+
+model ActivityLog {
+  id         String   @id @default(cuid())
+  action     String
+  entityType String?
+  entityId   String?
+  details    String?
+  userId     String?
+  createdAt  DateTime @default(now())
+
+  @@index([action])
+  @@index([createdAt])
+}
