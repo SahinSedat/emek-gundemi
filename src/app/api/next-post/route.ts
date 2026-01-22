@@ -1,40 +1,76 @@
 import { NextResponse } from 'next/server'
+import crypto from 'crypto'
 
 /**
  * GET /api/next-post
  * Cron job için bir sonraki haberi döndürür
- * Plain text format - direkt Telegram'a gönderilebilir
  * 
- * FORMAT:
- * 🟢 BAŞLIK
- * • Madde 1
- * • Madde 2
- * • Madde 3
- * 📌 Kaynak: Kaynak Adı
- * 🔗 Kaynağa Git
+ * ÖZELLİKLER:
+ * - SHA256 duplicate kontrolü
+ * - #SONDAKİKA mekanizması
+ * - Günlük limit: 25
+ * - Derin içerik çıkarma
+ * - Yüzeysel haber filtreleme
  */
 
-// Paylaşılan haberler (duplicate kontrolü)
-const publishedTitles: Set<string> = new Set()
+// Paylaşılan haberler - SHA256 hash
+const publishedHashes: Set<string> = new Set()
+let dailyCount = 0
+let lastResetDate = new Date().toDateString()
 
-// Gece saati kontrolü - DEVRE DIŞI (7/24 aktif)
-function isNightTime(): boolean {
-    return false // 7/24 paylaşım aktif
+// SON DAKİKA anahtar kelimeleri
+const BREAKING_KEYWORDS = [
+    'yürürlüğe girdi',
+    'bugün yayımlandı',
+    'derhal',
+    'ivedilikle',
+    'son dakika',
+    'resmi gazetede yayımlandı',
+    'açıklandı'
+]
+
+// Günlük limit
+const DAILY_LIMIT = 25
+
+// SHA256 hash oluştur
+function createHash(title: string, link: string): string {
+    const data = `${title.toLowerCase().trim()}|${link.toLowerCase().trim()}`
+    return crypto.createHash('sha256').update(data).digest('hex').slice(0, 16)
 }
 
 // Duplicate kontrolü
-function isDuplicate(title: string): boolean {
-    const key = title.toLowerCase().slice(0, 40)
-    return publishedTitles.has(key)
+function isDuplicate(title: string, link: string): boolean {
+    const hash = createHash(title, link)
+    return publishedHashes.has(hash)
 }
 
-function markPublished(title: string): void {
-    const key = title.toLowerCase().slice(0, 40)
-    publishedTitles.add(key)
-    if (publishedTitles.size > 100) {
-        const first = publishedTitles.values().next().value
-        if (first) publishedTitles.delete(first)
+function markPublished(title: string, link: string): void {
+    const hash = createHash(title, link)
+    publishedHashes.add(hash)
+    if (publishedHashes.size > 500) {
+        const first = publishedHashes.values().next().value
+        if (first) publishedHashes.delete(first)
     }
+}
+
+// Günlük sayaç kontrolü
+function checkDailyLimit(): boolean {
+    const today = new Date().toDateString()
+    if (today !== lastResetDate) {
+        dailyCount = 0
+        lastResetDate = today
+    }
+    return dailyCount < DAILY_LIMIT
+}
+
+function incrementDailyCount(): void {
+    dailyCount++
+}
+
+// SON DAKİKA kontrolü
+function isBreakingNews(title: string, content: string): boolean {
+    const text = `${title} ${content}`.toLowerCase()
+    return BREAKING_KEYWORDS.some(keyword => text.includes(keyword.toLowerCase()))
 }
 
 // RSS'den haber çek
@@ -43,7 +79,7 @@ async function fetchNews(): Promise<any[]> {
         const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001'
         const res = await fetch(`${baseUrl}/api/news/fetch`, {
             cache: 'no-store',
-            signal: AbortSignal.timeout(8000)
+            signal: AbortSignal.timeout(10000)
         })
         if (res.ok) {
             const data = await res.json()
@@ -55,91 +91,69 @@ async function fetchNews(): Promise<any[]> {
     return []
 }
 
-// İçerikten detay çıkar - "açıklandı/belirlendi" kontrolü
+// Derin içerik çıkarma
 function extractDetails(content: string): string[] {
     const details: string[] = []
-
-    // Rakam içeren cümleleri bul (fiyat, ücret, tarih)
     const sentences = content.split(/[.!?]/).filter(s => s.trim().length > 15)
 
+    // Önce rakam içeren cümleleri al
     for (const sentence of sentences) {
         const trimmed = sentence.trim()
-
-        // Rakam, TL, %, tarih içeriyorsa önemli
-        if (/\d+/.test(trimmed) || /TL|₺|%|yüzde/i.test(trimmed)) {
-            // Kısa ve net hale getir
-            const clean = trimmed
-                .replace(/^(.*?)(:|–|-)\s*/, '') // Başlık gibi prefixleri kaldır
-                .trim()
-
-            if (clean.length > 20 && clean.length < 150) {
-                details.push(clean)
-            }
-        }
-    }
-
-    // Eğer rakam yoksa ilk 3 anlamlı cümleyi al
-    if (details.length === 0) {
-        for (const sentence of sentences.slice(0, 3)) {
-            const trimmed = sentence.trim()
-            if (trimmed.length > 30 && trimmed.length < 150) {
+        if (/\d+/.test(trimmed) || /TL|₺|%|yüzde|tarih|ocak|şubat|mart|nisan|mayıs|haziran|temmuz|ağustos|eylül|ekim|kasım|aralık/i.test(trimmed)) {
+            if (trimmed.length > 20 && trimmed.length < 150) {
                 details.push(trimmed + '.')
             }
         }
     }
 
-    return details.slice(0, 5) // Max 5 madde
+    // Yeterli değilse normal cümleler
+    if (details.length < 3) {
+        for (const sentence of sentences) {
+            const trimmed = sentence.trim()
+            if (trimmed.length > 30 && trimmed.length < 150 && !details.includes(trimmed + '.')) {
+                details.push(trimmed + '.')
+                if (details.length >= 4) break
+            }
+        }
+    }
+
+    return details.slice(0, 5)
 }
 
-// Haber yüzeysel mi kontrol et
-function isShallowContent(content: string, extractedDetails: string[]): boolean {
-    const shallowKeywords = ['açıklandı', 'belirlendi', 'duyuruldu', 'belli oldu']
-    const hasShallowKeyword = shallowKeywords.some(k => content.toLowerCase().includes(k))
+// Yüzeysel içerik kontrolü
+function isShallowContent(content: string, details: string[]): boolean {
+    const shallowWords = ['açıklandı', 'belirlendi', 'duyuruldu', 'belli oldu']
+    const hasShallow = shallowWords.some(w => content.toLowerCase().includes(w))
 
-    // Yüzeysel anahtar kelime var ama detay yok
-    if (hasShallowKeyword && extractedDetails.length < 2) {
-        return true
-    }
+    if (hasShallow && details.length < 2) return true
 
-    // Detaylarda hiç rakam yok
-    const hasNumbers = extractedDetails.some(d => /\d+/.test(d))
-    if (hasShallowKeyword && !hasNumbers) {
-        return true
-    }
+    const hasNumbers = details.some(d => /\d+/.test(d))
+    if (hasShallow && !hasNumbers) return true
 
     return false
 }
 
-// YENİ FORMAT - Telegram için haber formatla
-function formatNewsForTelegram(title: string, content: string, source: string, link: string): string | null {
+// Haber formatla
+function formatNews(title: string, content: string, source: string, link: string): string | null {
     const details = extractDetails(content)
 
-    // Yüzeysel içerik kontrolü
     if (isShallowContent(content, details)) {
-        console.log(`Skipping shallow content: ${title}`)
+        console.log(`Skipping shallow: ${title}`)
         return null
     }
 
-    // Minimum detay kontrolü
     if (details.length < 2) {
-        // Fallback: içerikten cümle al
-        const fallbackDetails = content.split(/[.!?]/)
-            .filter(s => s.trim().length > 30)
-            .slice(0, 3)
-            .map(s => s.trim() + '.')
-
-        if (fallbackDetails.length < 2) {
-            console.log(`Not enough details: ${title}`)
-            return null
-        }
-
-        details.push(...fallbackDetails)
+        console.log(`Not enough details: ${title}`)
+        return null
     }
 
-    // FORMAT OLUŞTUR
-    let text = `🟢 ${title}\n\n`
+    // SON DAKİKA prefix
+    const isBreaking = isBreakingNews(title, content)
+    const prefix = isBreaking ? '🔴 #SONDAKİKA\n\n' : ''
 
-    for (const detail of details.slice(0, 5)) {
+    let text = `${prefix}🟢 ${title}\n\n`
+
+    for (const detail of details) {
         text += `• ${detail}\n`
     }
 
@@ -149,37 +163,58 @@ function formatNewsForTelegram(title: string, content: string, source: string, l
     return text
 }
 
-export async function GET() {
-    // Gece saati kontrolü
-    if (isNightTime()) {
-        return new NextResponse('', { status: 204 })
+export async function GET(request: Request) {
+    const { searchParams } = new URL(request.url)
+    const forceBreaking = searchParams.get('breaking') === 'true'
+
+    // Günlük limit kontrolü
+    if (!checkDailyLimit() && !forceBreaking) {
+        return new NextResponse(JSON.stringify({
+            error: 'Günlük limit doldu',
+            count: dailyCount,
+            limit: DAILY_LIMIT
+        }), {
+            status: 429,
+            headers: { 'Content-Type': 'application/json' }
+        })
     }
 
-    // Haberleri çek
     const news = await fetchNews()
 
     if (news.length === 0) {
         return new NextResponse('', { status: 204 })
     }
 
-    // Benzersiz ve detaylı haberi bul
+    // Uygun haberi bul
     let formattedText: string | null = null
     let selectedNews = null
 
-    for (const item of news) {
-        if (isDuplicate(item.title)) continue
+    // Önce SON DAKİKA haberleri (forceBreaking ise)
+    if (forceBreaking) {
+        for (const item of news) {
+            if (isDuplicate(item.title, item.link)) continue
+            if (!isBreakingNews(item.title, item.content)) continue
 
-        const text = formatNewsForTelegram(
-            item.title,
-            item.content,
-            item.source,
-            item.link
-        )
+            const text = formatNews(item.title, item.content, item.source, item.link)
+            if (text) {
+                formattedText = text
+                selectedNews = item
+                break
+            }
+        }
+    }
 
-        if (text) {
-            formattedText = text
-            selectedNews = item
-            break
+    // Normal haberler
+    if (!formattedText) {
+        for (const item of news) {
+            if (isDuplicate(item.title, item.link)) continue
+
+            const text = formatNews(item.title, item.content, item.source, item.link)
+            if (text) {
+                formattedText = text
+                selectedNews = item
+                break
+            }
         }
     }
 
@@ -187,17 +222,17 @@ export async function GET() {
         return new NextResponse('', { status: 204 })
     }
 
-    // Paylaşıldı olarak işaretle
-    markPublished(selectedNews.title)
+    // İşaretle
+    markPublished(selectedNews.title, selectedNews.link)
+    incrementDailyCount()
 
-    // Plain text + link bilgisi döndür
-    // Cron script bu çıktıyı alıp link ile birlikte gönderecek
-    const output = JSON.stringify({
+    return new NextResponse(JSON.stringify({
         text: formattedText,
-        link: selectedNews.link
-    })
-
-    return new NextResponse(output, {
+        link: selectedNews.link,
+        isBreaking: isBreakingNews(selectedNews.title, selectedNews.content),
+        dailyCount: dailyCount,
+        dailyLimit: DAILY_LIMIT
+    }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
     })

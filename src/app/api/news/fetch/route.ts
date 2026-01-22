@@ -14,6 +14,12 @@ interface FeedItem {
 
 // Bilinen RSS Feed'leri
 const RSS_FEEDS: Record<string, { name: string; url: string; type: string }> = {
+    // Resmî Gazete
+    'resmigazete': {
+        name: 'Resmî Gazete',
+        url: 'https://www.resmigazete.gov.tr/rss/eskiler.xml',
+        type: 'resmi'
+    },
     // Haber Siteleri
     'memurlar': {
         name: 'Memurlar.net',
@@ -25,7 +31,13 @@ const RSS_FEEDS: Record<string, { name: string; url: string; type: string }> = {
         url: 'https://www.kamuajans.com/rss',
         type: 'haber'
     },
-    // Not: Birçok site RSS sunmuyor, web scraping gerekiyor
+    'kamupersoneli': {
+        name: 'Kamu Personeli',
+        url: 'https://www.kamupersoneli.net/rss.xml',
+        type: 'haber'
+    },
+    // İŞKUR (eğer RSS varsa)
+    // Not: İŞKUR sayfasında doğrudan RSS olmayabilir
 }
 
 // Basit RSS parser
