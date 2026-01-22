@@ -101,26 +101,70 @@ export default function DashboardPage() {
         ))
     }
 
-    // Sendikalardan haber çek - DOĞRUDAN LİNKLERLE
+    // GERÇEK HABER ÇEK - RSS API'yi kullan
+    const handleFetchNewsSites = async () => {
+        setFetching('haber')
+
+        try {
+            // Gerçek haberler için API'yi çağır
+            const res = await fetch('/api/news/fetch')
+
+            if (res.ok) {
+                const data = await res.json()
+                let addedCount = 0
+
+                for (const item of data.items || []) {
+                    // Duplicate kontrolü
+                    const exists = news.some(n => n.title === item.title || n.sourceUrl === item.link)
+
+                    if (!exists) {
+                        const newsItem = {
+                            title: item.title,
+                            content: item.content || item.title,
+                            source: item.source,
+                            sourceUrl: item.link, // Doğrudan haber linkine
+                            sourceType: 'rss' as const,
+                            processed: false,
+                        }
+                        const stored = await addNews(newsItem)
+                        setNews(prev => [stored, ...prev])
+                        addedCount++
+                    }
+                }
+
+                if (addedCount > 0) {
+                    alert(`✅ ${addedCount} gerçek haber çekildi!`)
+                } else {
+                    alert('Tüm haberler zaten mevcut.')
+                }
+            } else {
+                alert('Haber çekme hatası: ' + res.status)
+            }
+        } catch (error) {
+            console.error('Fetch error:', error)
+            alert('Bağlantı hatası!')
+        }
+
+        setFetching(null)
+    }
+
+    // Sendikalardan haber çek - Kaynak linkleriyle
     const handleFetchSyndicates = async () => {
         setFetching('sendika')
         const syndicates = sources.filter(s => s.type === 'sendika' && s.active)
 
         let addedCount = 0
         for (const source of syndicates) {
-            await new Promise(r => setTimeout(r, 300))
-
-            // Her sendika için gerçek haber sayfasına yönlenen içerik
-            const newsItem = {
-                title: `${source.name} - Güncel Açıklama`,
-                content: `${source.description} tarafından yapılan son açıklamalar ve haberler için kaynağı ziyaret edin.`,
-                source: source.name,
-                sourceUrl: source.newsUrl, // Doğrudan haber sayfasına link
-                sourceType: 'rss' as const,
-                processed: false,
-            }
-
-            if (!isDuplicate(newsItem.content, newsItem.sourceUrl)) {
+            const exists = news.some(n => n.sourceUrl === source.newsUrl)
+            if (!exists) {
+                const newsItem = {
+                    title: `📢 ${source.name} - Güncel Açıklama`,
+                    content: `${source.description} - Güncel haberler için kaynağa gidin ve içerikleri inceleyin.`,
+                    source: source.name,
+                    sourceUrl: source.newsUrl,
+                    sourceType: 'rss' as const,
+                    processed: false,
+                }
                 const stored = await addNews(newsItem)
                 setNews(prev => [stored, ...prev])
                 addedCount++
@@ -128,9 +172,8 @@ export default function DashboardPage() {
         }
 
         setFetching(null)
-        if (addedCount === 0) {
-            alert('Yeni haber bulunamadı veya tüm haberler zaten mevcut.')
-        }
+        if (addedCount > 0) alert(`${addedCount} sendika kaynağı eklendi.`)
+        else alert('Tüm sendika kaynakları zaten mevcut.')
     }
 
     // Resmî kaynaklardan haber çek
@@ -140,18 +183,16 @@ export default function DashboardPage() {
 
         let addedCount = 0
         for (const source of officials) {
-            await new Promise(r => setTimeout(r, 300))
-
-            const newsItem = {
-                title: `${source.name} - Son Gelişmeler`,
-                content: `${source.description}. Detaylı bilgi ve güncel duyurular için resmi sayfayı ziyaret edin.`,
-                source: source.name,
-                sourceUrl: source.newsUrl,
-                sourceType: 'rss' as const,
-                processed: false,
-            }
-
-            if (!isDuplicate(newsItem.content, newsItem.sourceUrl)) {
+            const exists = news.some(n => n.sourceUrl === source.newsUrl)
+            if (!exists) {
+                const newsItem = {
+                    title: `🏛️ ${source.name} - Son Duyurular`,
+                    content: `${source.description} - Resmi duyurular için kaynağı ziyaret edin.`,
+                    source: source.name,
+                    sourceUrl: source.newsUrl,
+                    sourceType: 'rss' as const,
+                    processed: false,
+                }
                 const stored = await addNews(newsItem)
                 setNews(prev => [stored, ...prev])
                 addedCount++
@@ -159,40 +200,8 @@ export default function DashboardPage() {
         }
 
         setFetching(null)
-        if (addedCount === 0) {
-            alert('Yeni haber bulunamadı.')
-        }
-    }
-
-    // Haber sitelerinden çek
-    const handleFetchNewsSites = async () => {
-        setFetching('haber')
-        const newsSites = sources.filter(s => s.type === 'haber' && s.active)
-
-        let addedCount = 0
-        for (const source of newsSites) {
-            await new Promise(r => setTimeout(r, 300))
-
-            const newsItem = {
-                title: `${source.name} - Gündem`,
-                content: `${source.description}. Tüm güncel haberlere ulaşmak için siteyi ziyaret edin.`,
-                source: source.name,
-                sourceUrl: source.newsUrl,
-                sourceType: 'rss' as const,
-                processed: false,
-            }
-
-            if (!isDuplicate(newsItem.content, newsItem.sourceUrl)) {
-                const stored = await addNews(newsItem)
-                setNews(prev => [stored, ...prev])
-                addedCount++
-            }
-        }
-
-        setFetching(null)
-        if (addedCount === 0) {
-            alert('Yeni haber bulunamadı.')
-        }
+        if (addedCount > 0) alert(`${addedCount} resmi kaynak eklendi.`)
+        else alert('Tüm resmi kaynaklar zaten mevcut.')
     }
 
     // X'ten tweet çek (API gelince çalışacak)
@@ -536,8 +545,8 @@ ${item.aiComment ? `\n🧠 AI Yorumu:\n${item.aiComment}\n` : ''}
                                                     target="_blank"
                                                     rel="noopener noreferrer"
                                                     className={`text-xs px-2 py-1 rounded flex items-center gap-1 hover:opacity-80 transition-opacity ${item.sourceType === 'twitter'
-                                                            ? 'bg-blue-900/40 text-blue-400'
-                                                            : 'bg-green-900/40 text-green-400'
+                                                        ? 'bg-blue-900/40 text-blue-400'
+                                                        : 'bg-green-900/40 text-green-400'
                                                         }`}
                                                 >
                                                     {item.sourceType === 'twitter' ? <Twitter size={12} /> : <Globe size={12} />}
@@ -758,8 +767,8 @@ ${item.aiComment ? `\n🧠 AI Yorumu:\n${item.aiComment}\n` : ''}
                                             <button
                                                 onClick={() => toggleSource(source.id)}
                                                 className={`p-2 rounded-lg transition-colors ${source.active
-                                                        ? 'text-green-400 hover:bg-green-900/20'
-                                                        : 'text-zinc-600 hover:bg-zinc-800'
+                                                    ? 'text-green-400 hover:bg-green-900/20'
+                                                    : 'text-zinc-600 hover:bg-zinc-800'
                                                     }`}
                                                 title={source.active ? 'Devre Dışı Bırak' : 'Aktif Et'}
                                             >
