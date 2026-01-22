@@ -1,18 +1,19 @@
 /**
- * Haber Kaynakları - Doğrudan Haber Sayfalarına Linkler
+ * Haber Kaynakları - Gerçek RSS Feed'leri ile
  */
 
 export interface NewsSource {
     id: string
     name: string
     url: string
-    newsUrl: string  // Haberler sayfası
-    type: 'resmi' | 'sendika' | 'haber' | 'bakanlik'
+    newsUrl: string
+    rssUrl?: string  // RSS feed varsa
+    type: 'resmi' | 'sendika' | 'haber' | 'bakanlik' | 'custom'
     active: boolean
     description: string
 }
 
-// Gerçek haber kaynak linkleri
+// Varsayılan kaynaklar - RSS feed'li olanlar
 export const DEFAULT_SOURCES: NewsSource[] = [
     // === RESMİ KAYNAKLAR ===
     {
@@ -22,7 +23,7 @@ export const DEFAULT_SOURCES: NewsSource[] = [
         newsUrl: 'https://www.resmigazete.gov.tr/default.aspx',
         type: 'resmi',
         active: true,
-        description: 'Kanun, KHK, Yönetmelik, Atama Kararları'
+        description: 'Kanun, KHK, Yönetmelik'
     },
     {
         id: 'tbmm',
@@ -31,7 +32,7 @@ export const DEFAULT_SOURCES: NewsSource[] = [
         newsUrl: 'https://www.tbmm.gov.tr/haber',
         type: 'resmi',
         active: true,
-        description: 'Meclis Gündem ve Haberler'
+        description: 'Meclis Haberleri'
     },
 
     // === BAKANLIKLAR ===
@@ -42,16 +43,7 @@ export const DEFAULT_SOURCES: NewsSource[] = [
         newsUrl: 'https://www.csgb.gov.tr/haberler/',
         type: 'bakanlik',
         active: true,
-        description: 'Çalışma ve Sosyal Güvenlik Bakanlığı Haberleri'
-    },
-    {
-        id: 'hmb',
-        name: 'Hazine Bakanlığı',
-        url: 'https://www.hmb.gov.tr',
-        newsUrl: 'https://www.hmb.gov.tr/haberler',
-        type: 'bakanlik',
-        active: true,
-        description: 'Hazine ve Maliye Bakanlığı Duyuruları'
+        description: 'İş ve Sosyal Güvenlik'
     },
 
     // === SENDİKALAR ===
@@ -62,7 +54,7 @@ export const DEFAULT_SOURCES: NewsSource[] = [
         newsUrl: 'https://www.turkis.org.tr/kategori/haberler/',
         type: 'sendika',
         active: true,
-        description: 'Türkiye İşçi Sendikaları Konfederasyonu'
+        description: 'İşçi Sendikaları Konfederasyonu'
     },
     {
         id: 'disk',
@@ -71,16 +63,7 @@ export const DEFAULT_SOURCES: NewsSource[] = [
         newsUrl: 'https://disk.org.tr/category/basin-aciklamalari/',
         type: 'sendika',
         active: true,
-        description: 'Devrimci İşçi Sendikaları Konfederasyonu'
-    },
-    {
-        id: 'hak-is',
-        name: 'Hak-İş',
-        url: 'https://www.hakis.org.tr',
-        newsUrl: 'https://www.hakis.org.tr/haberler.html',
-        type: 'sendika',
-        active: true,
-        description: 'Hak İşçi Sendikaları Konfederasyonu'
+        description: 'Devrimci İşçi Sendikaları'
     },
     {
         id: 'memur-sen',
@@ -89,16 +72,7 @@ export const DEFAULT_SOURCES: NewsSource[] = [
         newsUrl: 'https://www.memursen.org.tr/haberler',
         type: 'sendika',
         active: true,
-        description: 'Memur Sendikaları Konfederasyonu'
-    },
-    {
-        id: 'kamu-sen',
-        name: 'Kamu-Sen',
-        url: 'https://www.kamusen.org.tr',
-        newsUrl: 'https://www.kamusen.org.tr/genel-baskan-basin-aciklamalari',
-        type: 'sendika',
-        active: true,
-        description: 'Türkiye Kamu-Sen Açıklamaları'
+        description: 'Memur Sendikaları'
     },
     {
         id: 'kesk',
@@ -107,10 +81,30 @@ export const DEFAULT_SOURCES: NewsSource[] = [
         newsUrl: 'https://www.kesk.org.tr/2025/',
         type: 'sendika',
         active: true,
-        description: 'Kamu Emekçileri Sendikaları Konfederasyonu'
+        description: 'Kamu Emekçileri Sendikaları'
     },
 
-    // === HABER SİTELERİ ===
+    // === HABER SİTELERİ - RSS DESTEKLİ ===
+    {
+        id: 'memurlar',
+        name: 'Memurlar.net',
+        url: 'https://www.memurlar.net',
+        newsUrl: 'https://www.memurlar.net/haber/',
+        rssUrl: 'https://www.memurlar.net/rss/',
+        type: 'haber',
+        active: true,
+        description: 'Memur Haberleri - RSS Destekli'
+    },
+    {
+        id: 'kamuajans',
+        name: 'Kamu Ajans',
+        url: 'https://www.kamuajans.com',
+        newsUrl: 'https://www.kamuajans.com/gundem/',
+        rssUrl: 'https://www.kamuajans.com/rss',
+        type: 'haber',
+        active: true,
+        description: 'Kamu Haberleri - RSS Destekli'
+    },
     {
         id: 'memurhaber',
         name: 'Memur Haber',
@@ -118,66 +112,28 @@ export const DEFAULT_SOURCES: NewsSource[] = [
         newsUrl: 'https://www.memurhaber.com/guncel/',
         type: 'haber',
         active: true,
-        description: 'Memur ve Kamu Personeli Güncel Haberleri'
-    },
-    {
-        id: 'memurlar',
-        name: 'Memurlar.net',
-        url: 'https://www.memurlar.net',
-        newsUrl: 'https://www.memurlar.net/haber/',
-        type: 'haber',
-        active: true,
-        description: 'Memur Haberleri ve Mevzuat'
-    },
-    {
-        id: 'kamuajans',
-        name: 'Kamu Ajans',
-        url: 'https://www.kamuajans.com',
-        newsUrl: 'https://www.kamuajans.com/gundem/',
-        type: 'haber',
-        active: true,
-        description: 'Kamu Personeli Haber Ajansı'
-    },
-    {
-        id: 'kamupersoneli',
-        name: 'Kamu Personeli',
-        url: 'https://www.kamupersoneli.net',
-        newsUrl: 'https://www.kamupersoneli.net/guncel/',
-        type: 'haber',
-        active: true,
-        description: 'Kamu Personeli Güncel Haberler'
+        description: 'Güncel Memur Haberleri'
     },
 ]
 
-// Kaynak tipine göre renk
-export function getSourceColor(type: string): string {
-    switch (type) {
-        case 'resmi': return 'bg-red-900/30 text-red-400'
-        case 'bakanlik': return 'bg-blue-900/30 text-blue-400'
-        case 'sendika': return 'bg-green-900/30 text-green-400'
-        case 'haber': return 'bg-purple-900/30 text-purple-400'
-        default: return 'bg-zinc-800 text-zinc-400'
-    }
-}
-
-// Kaynak tipine göre etiket
 export function getSourceLabel(type: string): string {
     switch (type) {
         case 'resmi': return '🏛️ Resmî Kaynaklar'
         case 'bakanlik': return '🏢 Bakanlıklar'
         case 'sendika': return '✊ Sendikalar'
         case 'haber': return '📰 Haber Siteleri'
+        case 'custom': return '➕ Özel Kaynaklar'
         default: return '🌐 Diğer'
     }
 }
 
-// Kaynak tipine göre ikon
 export function getSourceIcon(type: string): string {
     switch (type) {
         case 'resmi': return '🏛️'
         case 'bakanlik': return '🏢'
         case 'sendika': return '✊'
         case 'haber': return '📰'
+        case 'custom': return '➕'
         default: return '🌐'
     }
 }
