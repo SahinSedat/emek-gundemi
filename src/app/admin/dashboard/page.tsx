@@ -204,34 +204,32 @@ export default function DashboardPage() {
         else alert('Tüm resmi kaynaklar zaten mevcut.')
     }
 
-    // X'ten tweet çek (API gelince çalışacak)
-    const handleFetchTwitter = async () => {
+    // Telegram kanallarından çek
+    const handleFetchTelegram = async () => {
         if (accounts.length === 0) {
-            alert('Önce X Hesapları sekmesinden takip edilecek hesap ekleyin!')
+            alert('Önce Telegram Kanalları sekmesinden kanal ekleyin!')
             setActiveTab('accounts')
             return
         }
 
-        setFetching('twitter')
+        setFetching('telegram')
         let addedCount = 0
 
         for (const acc of accounts.filter(a => a.active)) {
             await new Promise(r => setTimeout(r, 400))
 
-            const tweetUrl = `https://x.com/${acc.handle}`
+            const channelUrl = `https://t.me/${acc.handle}`
+            const exists = news.some(n => n.sourceUrl === channelUrl)
 
-            const newsItem = {
-                title: `@${acc.handle} - Son Paylaşım`,
-                content: `Bu hesabın son paylaşımlarını görmek için X profilini ziyaret edin. (Gerçek tweet çekimi için X API gerekli)`,
-                source: `@${acc.handle}`,
-                sourceUrl: tweetUrl,
-                sourceType: 'twitter' as const,
-                tweetId: `demo_${Date.now()}`,
-                authorHandle: acc.handle,
-                processed: false,
-            }
-
-            if (!isDuplicate(newsItem.content, newsItem.sourceUrl)) {
+            if (!exists) {
+                const newsItem = {
+                    title: `📢 ${acc.handle} - Telegram Kanalı`,
+                    content: `Bu Telegram kanalının son paylaşımlarını görün.`,
+                    source: acc.handle,
+                    sourceUrl: channelUrl,
+                    sourceType: 'rss' as const,
+                    processed: false,
+                }
                 const stored = await addNews(newsItem)
                 setNews(prev => [stored, ...prev])
                 addedCount++
@@ -239,9 +237,8 @@ export default function DashboardPage() {
         }
 
         setFetching(null)
-        if (addedCount === 0) {
-            alert('Yeni paylaşım bulunamadı.')
-        }
+        if (addedCount > 0) alert(`${addedCount} Telegram kanalı eklendi.`)
+        else alert('Tüm kanallar zaten mevcut.')
     }
 
     // Tümünü çek
@@ -461,13 +458,13 @@ ${item.aiComment ? `\n🧠 AI Yorumu:\n${item.aiComment}\n` : ''}
                                 <div className="text-xs text-zinc-500">Memurlar.net, Kamu Ajans</div>
                             </button>
                             <button
-                                onClick={handleFetchTwitter}
+                                onClick={handleFetchTelegram}
                                 disabled={!!fetching}
                                 className={`p-3 rounded-lg text-left transition-colors ${fetching === 'twitter' ? 'bg-blue-600' : 'bg-zinc-800 hover:bg-zinc-700'
                                     }`}
                             >
                                 <Twitter size={20} className="mb-1 text-blue-400" />
-                                <div className="text-sm font-medium">X / Twitter</div>
+                                <div className="text-sm font-medium">Telegram</div>
                                 <div className="text-xs text-zinc-500">{accounts.length} hesap takipte</div>
                             </button>
                         </div>
@@ -486,7 +483,7 @@ ${item.aiComment ? `\n🧠 AI Yorumu:\n${item.aiComment}\n` : ''}
                             >
                                 <option value="all">Tümü ({news.length})</option>
                                 <option value="web">Web Kaynakları</option>
-                                <option value="twitter">X / Twitter</option>
+                                <option value="telegram">Telegram</option>
                                 <option value="processed">✓ İşlenmiş</option>
                                 <option value="unprocessed">○ İşlenmemiş ({unprocessedCount})</option>
                             </select>
@@ -693,7 +690,7 @@ ${item.aiComment ? `\n🧠 AI Yorumu:\n${item.aiComment}\n` : ''}
                                         </div>
                                         <div>
                                             <p className="font-semibold">@{acc.handle}</p>
-                                            <p className="text-xs text-zinc-500">X / Twitter Hesabı</p>
+                                            <p className="text-xs text-zinc-500">Telegram Kanalı</p>
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-1">
