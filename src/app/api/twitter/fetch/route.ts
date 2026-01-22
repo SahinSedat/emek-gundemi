@@ -1,12 +1,16 @@
 import { NextResponse } from 'next/server'
+import https from 'https'
 
 /**
  * Nitter üzerinden X/Twitter verileri çek
  * Scraping/RSS tabanlı - API yok
+ * 
+ * NOT: SSL sorunları için Node.js https kullanılıyor
  */
 
-// Çalışan Nitter instance'ları
+// Aktif Nitter instance'ları (2025 güncel)
 const NITTER_INSTANCES = [
+    'xcancel.com',           // En güvenilir
     'nitter.privacydev.net',
     'nitter.poast.org',
     'nitter.net',
@@ -20,6 +24,52 @@ interface ParsedTweet {
     link: string
 }
 
+// Basit HTTP request (SSL sorunlarını bypass)
+async function fetchWithBypass(url: string): Promise<string | null> {
+    return new Promise((resolve) => {
+        const urlObj = new URL(url)
+
+        const options = {
+            hostname: urlObj.hostname,
+            path: urlObj.pathname + urlObj.search,
+            method: 'GET',
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+                'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+            },
+            timeout: 10000,
+            rejectUnauthorized: false, // SSL doğrulamasını atla
+        }
+
+        const req = https.request(options, (res) => {
+            let data = ''
+            res.on('data', chunk => data += chunk)
+            res.on('end', () => {
+                if (res.statusCode === 200) {
+                    resolve(data)
+                } else {
+                    console.log(`${urlObj.hostname} returned ${res.statusCode}`)
+                    resolve(null)
+                }
+            })
+        })
+
+        req.on('error', (err) => {
+            console.log(`${urlObj.hostname} error:`, err.message)
+            resolve(null)
+        })
+
+        req.on('timeout', () => {
+            console.log(`${urlObj.hostname} timeout`)
+            req.destroy()
+            resolve(null)
+        })
+
+        req.end()
+    })
+}
+
 // RSS XML'den tweet çıkar
 function parseTweetsFromRSS(xml: string, handle: string): ParsedTweet[] {
     const tweets: ParsedTweet[] = []
@@ -29,7 +79,7 @@ function parseTweetsFromRSS(xml: string, handle: string): ParsedTweet[] {
 
     for (const item of items.slice(0, 5)) { // Son 5 tweet
         const title = extractValue(item, 'title')
-        const link = extractValue(item, 'link')
+        const link = extractValue(item, 'link') || extractValue(item, 'guid')
         const pubDate = extractValue(item, 'pubDate')
         const description = extractValue(item, 'description')
 
@@ -37,17 +87,20 @@ function parseTweetsFromRSS(xml: string, handle: string): ParsedTweet[] {
         const idMatch = link.match(/status\/(\d+)/)
         const id = idMatch ? idMatch[1] : Date.now().toString()
 
-        // Retweet kontrolü - RT ile başlayanları atla
+        // Retweet kontrolü
         if (title.startsWith('RT ') || title.startsWith('R to @')) {
             continue
         }
+
+        // Link'i x.com'a çevir
+        const cleanLink = link.replace(/https?:\/\/[^/]+/, 'https://x.com')
 
         tweets.push({
             id,
             text: cleanHtml(description || title),
             author: handle,
             date: pubDate,
-            link: link.replace(/nitter\.[^/]+/, 'x.com'), // x.com linkine çevir
+            link: cleanLink,
         })
     }
 
@@ -60,7 +113,6 @@ function extractValue(xml: string, tag: string): string {
     const match = xml.match(regex)
     if (match) {
         let content = match[1]
-        // CDATA kontrolü
         const cdataMatch = content.match(/<!\[CDATA\[([\s\S]*?)\]\]>/)
         if (cdataMatch) content = cdataMatch[1]
         return content.trim()
@@ -85,45 +137,32 @@ function cleanHtml(text: string): string {
 
 // Nitter'dan tweet çek
 async function fetchFromNitter(handle: string): Promise<ParsedTweet[]> {
+    const cleanHandle = handle.replace('@', '').trim()
+
     for (const instance of NITTER_INSTANCES) {
-        const url = `https://${instance}/${handle}/rss`
+        const url = `https://${instance}/${cleanHandle}/rss`
 
-        try {
-            console.log(`Trying Nitter: ${url}`)
+        console.log(`Trying: ${url}`)
 
-            const response = await fetch(url, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Accept': 'application/rss+xml, application/xml, text/xml',
-                },
-                cache: 'no-store',
-            })
+        const xml = await fetchWithBypass(url)
 
-            if (!response.ok) {
-                console.log(`${instance} failed: ${response.status}`)
-                continue
-            }
+        if (!xml) continue
 
-            const xml = await response.text()
+        // RSS kontrolü
+        if (!xml.includes('<item>') && !xml.includes('<entry>')) {
+            console.log(`${instance} no items found`)
+            continue
+        }
 
-            // RSS kontrolü
-            if (!xml.includes('<rss') && !xml.includes('<channel')) {
-                console.log(`${instance} returned non-RSS content`)
-                continue
-            }
+        const tweets = parseTweetsFromRSS(xml, cleanHandle)
 
-            const tweets = parseTweetsFromRSS(xml, handle)
-
-            if (tweets.length > 0) {
-                console.log(`Got ${tweets.length} tweets from ${instance}`)
-                return tweets
-            }
-
-        } catch (error) {
-            console.error(`${instance} error:`, error)
+        if (tweets.length > 0) {
+            console.log(`✓ Got ${tweets.length} tweets from ${instance} for @${cleanHandle}`)
+            return tweets
         }
     }
 
+    console.log(`✗ No tweets found for @${cleanHandle}`)
     return []
 }
 
@@ -142,16 +181,16 @@ export async function POST(request: Request) {
         const allTweets: ParsedTweet[] = []
 
         for (const handle of handles) {
-            // Her hesap arasında 1 saniye bekle (rate limit)
-            await new Promise(r => setTimeout(r, 1000))
+            // Rate limit - her hesap arasında 2 saniye
+            await new Promise(r => setTimeout(r, 2000))
 
-            const tweets = await fetchFromNitter(handle.replace('@', ''))
+            const tweets = await fetchFromNitter(handle)
             allTweets.push(...tweets)
         }
 
         // Haber formatına çevir
         const newsItems = allTweets.map(tweet => ({
-            title: `@${tweet.author}: ${tweet.text.slice(0, 80)}...`,
+            title: `@${tweet.author}'ın açıklaması`,
             content: tweet.text,
             source: `@${tweet.author}`,
             sourceUrl: tweet.link,
@@ -184,10 +223,6 @@ export async function GET(request: Request) {
 
     const handles = handlesParam.split(',').map(h => h.trim()).filter(Boolean)
 
-    // POST'a yönlendir
-    const fakeRequest = {
-        json: async () => ({ handles })
-    } as Request
-
+    const fakeRequest = { json: async () => ({ handles }) } as Request
     return POST(fakeRequest)
 }
