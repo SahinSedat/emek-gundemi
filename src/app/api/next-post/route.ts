@@ -133,7 +133,7 @@ function isShallowContent(content: string, details: string[]): boolean {
     return false
 }
 
-// Haber formatla
+// Haber formatla - WhatsApp linki dahil
 function formatNews(title: string, content: string, source: string, link: string): string | null {
     const details = extractDetails(content)
 
@@ -159,6 +159,7 @@ function formatNews(title: string, content: string, source: string, link: string
 
     text += `\n📌 Kaynak: ${source}\n`
     text += `\n🔗 Kaynağa Git`
+    text += `\n\n📲 WhatsApp Kanalı`
 
     return text
 }

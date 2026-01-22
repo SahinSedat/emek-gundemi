@@ -14,13 +14,14 @@ interface FeedItem {
 
 // Bilinen RSS Feed'leri
 const RSS_FEEDS: Record<string, { name: string; url: string; type: string }> = {
-    // Resmî Gazete
+    // === RESMİ KAYNAKLAR ===
     'resmigazete': {
         name: 'Resmî Gazete',
         url: 'https://www.resmigazete.gov.tr/rss/eskiler.xml',
         type: 'resmi'
     },
-    // Haber Siteleri
+
+    // === KAMU HABER SİTELERİ ===
     'memurlar': {
         name: 'Memurlar.net',
         url: 'https://www.memurlar.net/rss/',
@@ -36,8 +37,31 @@ const RSS_FEEDS: Record<string, { name: string; url: string; type: string }> = {
         url: 'https://www.kamupersoneli.net/rss.xml',
         type: 'haber'
     },
-    // İŞKUR (eğer RSS varsa)
-    // Not: İŞKUR sayfasında doğrudan RSS olmayabilir
+
+    // === SENDİKA & EMEK HABERLERİ ===
+    // TİS, KÇP, 696 KHK, işçi-memur mücadelesi
+    'sendika': {
+        name: 'Sendika.org',
+        url: 'https://sendika.org/feed/',
+        type: 'sendika'
+    },
+    'evrensel': {
+        name: 'Evrensel İşçi',
+        url: 'https://www.evrensel.net/rss/8.xml', // işçi haberleri
+        type: 'sendika'
+    },
+    'birgun': {
+        name: 'BirGün Emek',
+        url: 'https://www.birgun.net/rss/emek.xml',
+        type: 'sendika'
+    },
+
+    // === İŞ DÜNYASI & EKONOMİ ===
+    'ekonomi': {
+        name: 'Ekonomi Haberleri',
+        url: 'https://www.bloomberght.com/rss',
+        type: 'ekonomi'
+    },
 }
 
 // Basit RSS parser
