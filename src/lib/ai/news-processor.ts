@@ -1,14 +1,16 @@
 /**
  * AI Haber İşlemci - OpenAI (ChatGPT) Entegrasyonu
- * Haberleri özetler, doğrular ve yorum ekler
+ * Haberleri özetler, doğrular, yorum ekler ve haber değeri analizi yapar
  */
 
 export interface AIProcessResult {
-    summary: string[]      // 3-5 maddelik özet
-    aiComment: string      // AI yorumu
-    verified: boolean      // Kaynak doğrulaması
-    category: string       // Otomatik kategori
-    tags: string[]         // Etiketler
+    summary: string[]
+    aiComment: string
+    verified: boolean
+    newsworthy: boolean
+    importance: 'low' | 'medium' | 'high'
+    category: string
+    tags: string[]
 }
 
 interface NewsInput {
@@ -19,7 +21,7 @@ interface NewsInput {
 }
 
 /**
- * Haberi OpenAI ile işle
+ * Haberi/Tweet'i OpenAI ile işle
  */
 export async function processNewsWithAI(news: NewsInput): Promise<AIProcessResult> {
     const apiKey = process.env.OPENAI_API_KEY
@@ -31,26 +33,28 @@ export async function processNewsWithAI(news: NewsInput): Promise<AIProcessResul
 
     const prompt = `Sen Türkiye'de emek ve kamu dünyasını takip eden bir haber analisti yapay zekasın.
 
-Aşağıdaki haberi analiz et:
+Aşağıdaki içeriği analiz et:
 
-BAŞLIK: ${news.title}
-İÇERİK: ${news.content}
+BAŞLIK/İÇERİK: ${news.title}
+DETAY: ${news.content}
 KAYNAK: ${news.source}
 
 Şu formatta JSON yanıt ver:
 {
-  "summary": ["Madde 1", "Madde 2", "Madde 3"],
-  "aiComment": "Bu düzenleme hakkında kısa ve öz bir yorum. Kimin lehine/aleyhine olduğu, pratik sonuçları ve dikkat edilmesi gerekenler.",
+  "newsworthy": true veya false (Bu içerik haber değeri taşıyor mu? Kamu emekçilerini, işçileri, memurları, sendikaları ilgilendiriyor mu?),
+  "importance": "low" veya "medium" veya "high" (önem derecesi),
+  "summary": ["Madde 1", "Madde 2", "Madde 3"] (3-5 maddelik özet, haber değeri varsa),
+  "aiComment": "Kısa ve öz yorum. Kimin lehine/aleyhine, pratik sonuçları." (haber değeri varsa),
   "verified": true veya false (kaynak güvenilir mi?),
-  "category": "kamu-iscisi" veya "memur" veya "ozel-sektor" veya "sendika" veya "ekonomi" veya "resmi-gazete" veya "tbmm" veya "yargi",
-  "tags": ["etiket1", "etiket2", "etiket3"]
+  "category": "kamu-iscisi" veya "memur" veya "ozel-sektor" veya "sendika" veya "ekonomi" veya "resmi-gazete" veya "tbmm" veya "yargi" veya "diger",
+  "tags": ["etiket1", "etiket2"]
 }
 
 Kurallar:
-- Özet 3-5 madde olsun, her madde tek cümle
-- Yorum kısa ve öz olsun (2-3 cümle)
-- Tarafsız ve bilgiye dayalı ol
-- Abartı veya spekülasyon yapma`
+- Haber değeri yoksa newsworthy: false yap, summary ve aiComment boş bırak
+- Sıradan paylaşımlar, kişisel yorumlar haber değeri taşımaz
+- Resmi açıklamalar, kararlar, zam/maaş haberleri, TİS, sendika açıklamaları haber değeri taşır
+- Tarafsız ol, abartı yapma`
 
     try {
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -90,6 +94,8 @@ Kurallar:
             summary: result.summary || [],
             aiComment: result.aiComment || '',
             verified: result.verified ?? true,
+            newsworthy: result.newsworthy ?? true,
+            importance: result.importance || 'medium',
             category: result.category || 'diger',
             tags: result.tags || [],
         }
@@ -111,8 +117,10 @@ function fallbackProcess(news: NewsInput): AIProcessResult {
 
     return {
         summary: sentences.length > 0 ? sentences : [news.title],
-        aiComment: 'Bu haber için AI analizi yapılamadı. API anahtarını kontrol edin.',
+        aiComment: 'AI analizi yapılamadı.',
         verified: false,
+        newsworthy: true,
+        importance: 'medium',
         category: 'diger',
         tags: [],
     }

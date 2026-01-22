@@ -1,59 +1,121 @@
 'use client'
 
-import { useState } from 'react'
-import { RefreshCw, Bot, Copy, Check, AlertCircle, Send } from 'lucide-react'
-
-interface NewsItem {
-    id: string
-    title: string
-    content: string
-    source: string
-    sourceUrl: string
-    processed: boolean
-    summary?: string[]
-    aiComment?: string
-    verified?: boolean
-}
+import { useState, useEffect } from 'react'
+import {
+    RefreshCw, Bot, Copy, Check, Send, Trash2,
+    Twitter, Globe, CheckSquare, Square, AlertTriangle,
+    Star, ChevronDown
+} from 'lucide-react'
+import {
+    StoredNews,
+    getAllNews,
+    addNews,
+    updateNews,
+    deleteMultipleNews,
+    clearAllNews,
+    getAllAccounts,
+    initializeDefaultAccounts,
+    TrackedAccount
+} from '@/lib/db'
 
 export default function DashboardPage() {
+    const [news, setNews] = useState<StoredNews[]>([])
+    const [accounts, setAccounts] = useState<TrackedAccount[]>([])
+    const [loading, setLoading] = useState(true)
     const [fetching, setFetching] = useState(false)
     const [processing, setProcessing] = useState<string | null>(null)
     const [copied, setCopied] = useState<string | null>(null)
-    const [news, setNews] = useState<NewsItem[]>([])
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+    const [showAccounts, setShowAccounts] = useState(false)
 
-    // Haberleri çek
-    const handleFetch = async () => {
+    // Veritabanından haberleri ve hesapları yükle
+    useEffect(() => {
+        loadData()
+    }, [])
+
+    const loadData = async () => {
+        try {
+            await initializeDefaultAccounts()
+            const [storedNews, storedAccounts] = await Promise.all([
+                getAllNews(),
+                getAllAccounts()
+            ])
+            setNews(storedNews)
+            setAccounts(storedAccounts)
+        } catch (error) {
+            console.error('Veri yükleme hatası:', error)
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    // Demo haberler çek (gerçekte Twitter API kullanılacak)
+    const handleFetchNews = async () => {
         setFetching(true)
 
-        // Demo: API'den haber çekimi simülasyonu
-        await new Promise(r => setTimeout(r, 2000))
+        // Demo: Simüle edilmiş haber çekimi
+        await new Promise(r => setTimeout(r, 1500))
 
-        setNews([
+        const demoNews = [
             {
-                id: '1',
                 title: 'Kamu İşçilerinin 2025 Yılı Zam Oranları Belirlendi',
-                content: 'Kamu işçilerine 2025 yılının ilk yarısı için yüzde 25, ikinci yarısı için yüzde 25 zam yapılacak. Toplu iş sözleşmesi görüşmeleri başarıyla tamamlandı. Refah payı da artışa dahil edildi.',
+                content: 'Kamu işçilerine 2025 yılının ilk yarısı için yüzde 25, ikinci yarısı için yüzde 25 zam yapılacak. Toplu iş sözleşmesi görüşmeleri başarıyla tamamlandı.',
                 source: 'Resmî Gazete',
                 sourceUrl: 'https://resmigazete.gov.tr',
+                sourceType: 'rss' as const,
                 processed: false,
             },
             {
-                id: '2',
                 title: 'Memur Maaş Artış Görüşmeleri Devam Ediyor',
                 content: 'Hazine ve Maliye Bakanlığı ile memur sendikaları arasındaki maaş görüşmeleri devam ediyor. Sendikalar refah payı talebinde ısrarcı.',
                 source: 'Çalışma Bakanlığı',
                 sourceUrl: 'https://csgb.gov.tr',
+                sourceType: 'rss' as const,
+                processed: false,
+            },
+        ]
+
+        for (const item of demoNews) {
+            const stored = await addNews(item)
+            setNews(prev => [stored, ...prev])
+        }
+
+        setFetching(false)
+    }
+
+    // X'ten tweet çek (demo)
+    const handleFetchTwitter = async () => {
+        setFetching(true)
+
+        await new Promise(r => setTimeout(r, 2000))
+
+        const demoTweets = [
+            {
+                title: 'Türk-İş: Asgari ücret görüşmeleri için önerimiz hazır',
+                content: 'Türk-İş Genel Başkanı: "Asgari ücret görüşmeleri için kapsamlı bir teklif hazırladık. İşçilerimizin alım gücünü koruyacak bir düzenleme bekliyoruz."',
+                source: '@turkikiemeksend',
+                sourceUrl: 'https://twitter.com/turkikiemeksend/status/123456',
+                sourceType: 'twitter' as const,
+                tweetId: '123456',
+                authorHandle: 'turkikiemeksend',
                 processed: false,
             },
             {
-                id: '3',
-                title: 'TBMM\'de İş Kanunu Değişikliği Görüşülecek',
-                content: 'İş Kanunu\'nda yapılacak değişiklikler yarın TBMM Plan ve Bütçe Komisyonu\'nda görüşülecek. Kıdem tazminatı düzenlemesi gündemde.',
-                source: 'TBMM',
-                sourceUrl: 'https://tbmm.gov.tr',
+                title: 'Çalışma Bakanı: Yeni istihdam paketi hazırlanıyor',
+                content: 'Çalışma ve Sosyal Güvenlik Bakanı yaptığı açıklamada, işsizlikle mücadele için kapsamlı bir istihdam paketinin hazırlandığını duyurdu.',
+                source: '@CalismaBakani',
+                sourceUrl: 'https://twitter.com/CalismaBakani/status/789012',
+                sourceType: 'twitter' as const,
+                tweetId: '789012',
+                authorHandle: 'CalismaBakani',
                 processed: false,
             },
-        ])
+        ]
+
+        for (const item of demoTweets) {
+            const stored = await addNews(item)
+            setNews(prev => [stored, ...prev])
+        }
 
         setFetching(false)
     }
@@ -61,8 +123,6 @@ export default function DashboardPage() {
     // AI ile işle
     const handleProcess = async (id: string) => {
         setProcessing(id)
-
-        // API çağrısı
         const item = news.find(n => n.id === id)
         if (!item) return
 
@@ -78,47 +138,50 @@ export default function DashboardPage() {
                 }),
             })
 
+            let result
             if (res.ok) {
-                const result = await res.json()
-                setNews(prev => prev.map(n =>
-                    n.id === id ? { ...n, processed: true, ...result } : n
-                ))
+                result = await res.json()
             } else {
                 // Fallback demo
-                await new Promise(r => setTimeout(r, 2000))
-                setNews(prev => prev.map(n =>
-                    n.id === id ? {
-                        ...n,
-                        processed: true,
-                        summary: [
-                            'Kamu işçilerine yüzde 25+25 zam uygulanacak',
-                            'TİS görüşmeleri başarıyla tamamlandı',
-                            'Yeni ücretler Ocak\'tan itibaren geçerli',
-                        ],
-                        aiComment: 'Bu düzenleme yaklaşık 500.000 kamu işçisinin lehine. Enflasyon oranına yakın bir artış sağlanmış olsa da, reel gelir kaybı riski devam ediyor.',
-                        verified: true,
-                    } : n
-                ))
+                result = {
+                    summary: ['Özet oluşturuldu', 'İkinci madde', 'Üçüncü madde'],
+                    aiComment: 'Bu düzenleme kamu emekçileri açısından önemli sonuçlar doğurabilir.',
+                    verified: true,
+                    newsworthy: true,
+                    importance: 'high',
+                }
             }
-        } catch {
-            // Demo fallback
-            await new Promise(r => setTimeout(r, 2000))
-            setNews(prev => prev.map(n =>
-                n.id === id ? {
-                    ...n,
-                    processed: true,
-                    summary: ['Özet oluşturulamadı'],
-                    aiComment: 'API bağlantısı kurulamadı.',
-                    verified: false,
-                } : n
-            ))
+
+            const updated = { ...item, processed: true, ...result }
+            await updateNews(updated)
+            setNews(prev => prev.map(n => n.id === id ? updated : n))
+        } catch (error) {
+            console.error('AI işleme hatası:', error)
         }
 
         setProcessing(null)
     }
 
-    // Paylaşım metnini kopyala
-    const handleCopy = (item: NewsItem) => {
+    // Seçili haberleri sil
+    const handleDeleteSelected = async () => {
+        if (selectedIds.size === 0) return
+        if (!confirm(`${selectedIds.size} haber silinecek. Emin misiniz?`)) return
+
+        await deleteMultipleNews(Array.from(selectedIds))
+        setNews(prev => prev.filter(n => !selectedIds.has(n.id)))
+        setSelectedIds(new Set())
+    }
+
+    // Tümünü sil
+    const handleClearAll = async () => {
+        if (!confirm('TÜM haberler silinecek. Emin misiniz?')) return
+        await clearAllNews()
+        setNews([])
+        setSelectedIds(new Set())
+    }
+
+    // Kopyala
+    const handleCopy = (item: StoredNews) => {
         if (!item.summary || !item.aiComment) return
 
         const text = `🔴 ${item.title}
@@ -137,105 +200,228 @@ ${item.aiComment}
         setTimeout(() => setCopied(null), 2000)
     }
 
+    // Seçim toggle
+    const toggleSelect = (id: string) => {
+        const newSet = new Set(selectedIds)
+        if (newSet.has(id)) {
+            newSet.delete(id)
+        } else {
+            newSet.add(id)
+        }
+        setSelectedIds(newSet)
+    }
+
+    // Tümünü seç/kaldır
+    const toggleSelectAll = () => {
+        if (selectedIds.size === news.length) {
+            setSelectedIds(new Set())
+        } else {
+            setSelectedIds(new Set(news.map(n => n.id)))
+        }
+    }
+
+    const getImportanceBadge = (importance?: string) => {
+        switch (importance) {
+            case 'high':
+                return <span className="text-xs text-red-400 bg-red-900/30 px-2 py-0.5 rounded flex items-center gap-1"><Star size={10} /> Önemli</span>
+            case 'medium':
+                return <span className="text-xs text-amber-400 bg-amber-900/30 px-2 py-0.5 rounded">Orta</span>
+            default:
+                return null
+        }
+    }
+
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center h-64">
+                <RefreshCw className="animate-spin text-zinc-500" size={32} />
+            </div>
+        )
+    }
+
     return (
-        <div className="max-w-4xl mx-auto">
-            {/* Başlık ve Çek Butonu */}
-            <div className="flex items-center justify-between mb-8">
+        <div className="max-w-5xl mx-auto">
+            {/* Başlık ve Butonlar */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                 <div>
                     <h1 className="text-2xl font-bold">Haber Merkezi</h1>
                     <p className="text-zinc-500">Haberleri çek, AI ile işle, paylaş</p>
                 </div>
-                <button
-                    onClick={handleFetch}
-                    disabled={fetching}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 rounded-lg font-medium"
-                >
-                    <RefreshCw size={18} className={fetching ? 'animate-spin' : ''} />
-                    {fetching ? 'Çekiliyor...' : 'Haberleri Çek'}
-                </button>
+                <div className="flex gap-2">
+                    <button
+                        onClick={handleFetchNews}
+                        disabled={fetching}
+                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg font-medium"
+                    >
+                        <Globe size={16} className={fetching ? 'animate-pulse' : ''} />
+                        RSS Çek
+                    </button>
+                    <button
+                        onClick={handleFetchTwitter}
+                        disabled={fetching}
+                        className="flex items-center gap-2 px-4 py-2 bg-zinc-700 hover:bg-zinc-600 disabled:opacity-50 rounded-lg font-medium"
+                    >
+                        <Twitter size={16} className={fetching ? 'animate-pulse' : ''} />
+                        X'ten Çek
+                    </button>
+                </div>
             </div>
+
+            {/* Takip Edilen Hesaplar */}
+            <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-4 mb-6">
+                <button
+                    onClick={() => setShowAccounts(!showAccounts)}
+                    className="w-full flex items-center justify-between text-left"
+                >
+                    <span className="font-medium flex items-center gap-2">
+                        <Twitter size={16} className="text-blue-400" />
+                        Takip Edilen Hesaplar ({accounts.filter(a => a.active).length})
+                    </span>
+                    <ChevronDown size={18} className={`transition-transform ${showAccounts ? 'rotate-180' : ''}`} />
+                </button>
+
+                {showAccounts && (
+                    <div className="mt-3 pt-3 border-t border-zinc-800 flex flex-wrap gap-2">
+                        {accounts.map(acc => (
+                            <span
+                                key={acc.id}
+                                className={`px-2 py-1 rounded text-sm ${acc.active
+                                        ? 'bg-blue-900/30 text-blue-400'
+                                        : 'bg-zinc-800 text-zinc-500'
+                                    }`}
+                            >
+                                @{acc.handle}
+                            </span>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {/* Toplu İşlemler */}
+            {news.length > 0 && (
+                <div className="flex items-center justify-between bg-zinc-900 rounded-lg border border-zinc-800 p-3 mb-4">
+                    <div className="flex items-center gap-3">
+                        <button onClick={toggleSelectAll} className="text-zinc-400 hover:text-white">
+                            {selectedIds.size === news.length ? <CheckSquare size={18} /> : <Square size={18} />}
+                        </button>
+                        <span className="text-sm text-zinc-400">
+                            {selectedIds.size > 0 ? `${selectedIds.size} seçili` : `${news.length} haber`}
+                        </span>
+                    </div>
+                    <div className="flex gap-2">
+                        {selectedIds.size > 0 && (
+                            <button
+                                onClick={handleDeleteSelected}
+                                className="flex items-center gap-1 px-3 py-1.5 bg-red-600/20 text-red-400 hover:bg-red-600/30 rounded text-sm"
+                            >
+                                <Trash2 size={14} />
+                                Seçilenleri Sil
+                            </button>
+                        )}
+                        <button
+                            onClick={handleClearAll}
+                            className="flex items-center gap-1 px-3 py-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded text-sm"
+                        >
+                            Tümünü Temizle
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Haber Listesi */}
             {news.length === 0 ? (
                 <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-16 text-center">
-                    <RefreshCw size={48} className="mx-auto text-zinc-600 mb-4" />
+                    <Globe size={48} className="mx-auto text-zinc-600 mb-4" />
                     <p className="text-zinc-400">Henüz haber yok</p>
-                    <p className="text-zinc-500 text-sm mt-1">Yukarıdaki butona tıklayarak başlayın</p>
+                    <p className="text-zinc-500 text-sm mt-1">Yukarıdaki butonlara tıklayarak haber çekin</p>
                 </div>
             ) : (
-                <div className="space-y-4">
+                <div className="space-y-3">
                     {news.map((item) => (
-                        <div key={item.id} className="bg-zinc-900 rounded-xl border border-zinc-800 p-5">
-                            {/* Başlık */}
-                            <div className="flex items-start justify-between gap-4 mb-3">
-                                <div>
-                                    <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded mr-2">
-                                        {item.source}
-                                    </span>
-                                    {item.verified && (
-                                        <span className="text-xs text-green-500 bg-green-900/30 px-2 py-0.5 rounded">
-                                            ✓ Doğrulandı
+                        <div
+                            key={item.id}
+                            className={`bg-zinc-900 rounded-xl border p-4 transition-colors ${selectedIds.has(item.id) ? 'border-red-600' : 'border-zinc-800'
+                                }`}
+                        >
+                            <div className="flex items-start gap-3">
+                                {/* Checkbox */}
+                                <button
+                                    onClick={() => toggleSelect(item.id)}
+                                    className="mt-1 text-zinc-500 hover:text-white"
+                                >
+                                    {selectedIds.has(item.id) ? <CheckSquare size={18} /> : <Square size={18} />}
+                                </button>
+
+                                <div className="flex-1 min-w-0">
+                                    {/* Header */}
+                                    <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                        <span className={`text-xs px-2 py-0.5 rounded ${item.sourceType === 'twitter' ? 'bg-blue-900/30 text-blue-400' : 'bg-zinc-800 text-zinc-400'
+                                            }`}>
+                                            {item.source}
                                         </span>
+                                        {item.newsworthy === false && (
+                                            <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded flex items-center gap-1">
+                                                <AlertTriangle size={10} /> Haber değeri düşük
+                                            </span>
+                                        )}
+                                        {getImportanceBadge(item.importance)}
+                                        {item.verified && (
+                                            <span className="text-xs text-green-500">✓</span>
+                                        )}
+                                    </div>
+
+                                    {/* Title & Content */}
+                                    <h3 className="font-semibold mb-1">{item.title}</h3>
+                                    <p className="text-zinc-400 text-sm mb-3">{item.content}</p>
+
+                                    {/* AI Result */}
+                                    {item.processed && item.summary && (
+                                        <div className="bg-zinc-800/50 rounded-lg p-3 mb-3 space-y-2">
+                                            <div>
+                                                <span className="text-xs text-red-400 font-medium">📌 Özet</span>
+                                                <ul className="mt-1 space-y-0.5">
+                                                    {item.summary.map((s, i) => (
+                                                        <li key={i} className="text-sm text-zinc-300">• {s}</li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                            <div className="pt-2 border-t border-zinc-700">
+                                                <span className="text-xs text-amber-400 font-medium">🧠 AI Yorumu</span>
+                                                <p className="text-sm text-zinc-300 mt-1">{item.aiComment}</p>
+                                            </div>
+                                        </div>
                                     )}
-                                </div>
-                                <a href={item.sourceUrl} target="_blank" className="text-xs text-zinc-500 hover:text-white">
-                                    Kaynak →
-                                </a>
-                            </div>
 
-                            <h3 className="text-lg font-semibold mb-2">{item.title}</h3>
-                            <p className="text-zinc-400 text-sm mb-4">{item.content}</p>
-
-                            {/* İşlenmiş İçerik */}
-                            {item.processed && item.summary && (
-                                <div className="bg-zinc-800/50 rounded-lg p-4 mb-4 space-y-4">
-                                    {/* Özet */}
-                                    <div>
-                                        <h4 className="text-sm font-medium text-red-400 mb-2">📌 Özet</h4>
-                                        <ul className="space-y-1">
-                                            {item.summary.map((s, i) => (
-                                                <li key={i} className="text-sm text-zinc-300 flex gap-2">
-                                                    <span className="text-red-500">•</span>
-                                                    {s}
-                                                </li>
-                                            ))}
-                                        </ul>
+                                    {/* Actions */}
+                                    <div className="flex gap-2 flex-wrap">
+                                        {!item.processed ? (
+                                            <button
+                                                onClick={() => handleProcess(item.id)}
+                                                disabled={processing === item.id}
+                                                className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded text-sm"
+                                            >
+                                                <Bot size={14} className={processing === item.id ? 'animate-pulse' : ''} />
+                                                {processing === item.id ? 'İşleniyor...' : 'AI ile İşle'}
+                                            </button>
+                                        ) : (
+                                            <>
+                                                <button
+                                                    onClick={() => handleCopy(item)}
+                                                    className="flex items-center gap-1 px-3 py-1.5 bg-green-600 hover:bg-green-700 rounded text-sm"
+                                                >
+                                                    {copied === item.id ? <Check size={14} /> : <Copy size={14} />}
+                                                    {copied === item.id ? 'Kopyalandı!' : 'Kopyala'}
+                                                </button>
+                                                <button className="flex items-center gap-1 px-3 py-1.5 bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 rounded text-sm">
+                                                    <Send size={14} /> Telegram
+                                                </button>
+                                                <button className="flex items-center gap-1 px-3 py-1.5 bg-green-600/20 text-green-400 hover:bg-green-600/30 rounded text-sm">
+                                                    <Send size={14} /> WhatsApp
+                                                </button>
+                                            </>
+                                        )}
                                     </div>
-
-                                    {/* AI Yorumu */}
-                                    <div className="pt-3 border-t border-zinc-700">
-                                        <h4 className="text-sm font-medium text-amber-400 mb-2">🧠 AI Yorumu</h4>
-                                        <p className="text-sm text-zinc-300">{item.aiComment}</p>
-                                    </div>
                                 </div>
-                            )}
-
-                            {/* Butonlar */}
-                            <div className="flex gap-3">
-                                {!item.processed ? (
-                                    <button
-                                        onClick={() => handleProcess(item.id)}
-                                        disabled={processing === item.id}
-                                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg text-sm font-medium"
-                                    >
-                                        <Bot size={16} className={processing === item.id ? 'animate-pulse' : ''} />
-                                        {processing === item.id ? 'İşleniyor...' : 'AI ile İşle'}
-                                    </button>
-                                ) : (
-                                    <>
-                                        <button
-                                            onClick={() => handleCopy(item)}
-                                            className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-sm font-medium"
-                                        >
-                                            {copied === item.id ? <Check size={16} /> : <Copy size={16} />}
-                                            {copied === item.id ? 'Kopyalandı!' : 'Kopyala'}
-                                        </button>
-                                        <button className="flex items-center gap-2 px-4 py-2 bg-zinc-700 hover:bg-zinc-600 rounded-lg text-sm font-medium">
-                                            <Send size={16} />
-                                            Telegram
-                                        </button>
-                                    </>
-                                )}
                             </div>
                         </div>
                     ))}
