@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import {
     RefreshCw, Bot, Copy, Check, Send, Trash2,
-    Twitter, Globe, CheckSquare, Square, Star,
+    MessageCircle, Globe, CheckSquare, Square, Star,
     Plus, X, ExternalLink, Clock,
     Filter, Building2, Users, Newspaper, Zap
 } from 'lucide-react'
@@ -358,7 +358,7 @@ ${item.aiComment ? `\n🧠 AI Yorumu:\n${item.aiComment}\n` : ''}
     // Filtrelenmiş haberler
     const filteredNews = news.filter(n => {
         if (filterType === 'all') return true
-        if (filterType === 'twitter') return n.sourceType === 'twitter'
+        if (filterType === 'telegram') return n.sourceType === 'rss' && n.source?.includes('Telegram')
         if (filterType === 'web') return n.sourceType === 'rss'
         if (filterType === 'processed') return n.processed
         if (filterType === 'unprocessed') return !n.processed
@@ -391,7 +391,7 @@ ${item.aiComment ? `\n🧠 AI Yorumu:\n${item.aiComment}\n` : ''}
             <div className="flex gap-1 mb-6 bg-zinc-900 p-1 rounded-lg w-fit">
                 {[
                     { id: 'news', label: 'Haberler', icon: <Newspaper size={16} />, count: news.length },
-                    { id: 'accounts', label: 'X Hesapları', icon: <Twitter size={16} />, count: accounts.length },
+                    { id: 'accounts', label: 'Telegram Kanalları', icon: <MessageCircle size={16} />, count: accounts.length },
                     { id: 'sources', label: 'Kaynaklar', icon: <Globe size={16} /> },
                 ].map(tab => (
                     <button
@@ -460,10 +460,10 @@ ${item.aiComment ? `\n🧠 AI Yorumu:\n${item.aiComment}\n` : ''}
                             <button
                                 onClick={handleFetchTelegram}
                                 disabled={!!fetching}
-                                className={`p-3 rounded-lg text-left transition-colors ${fetching === 'twitter' ? 'bg-blue-600' : 'bg-zinc-800 hover:bg-zinc-700'
+                                className={`p-3 rounded-lg text-left transition-colors ${fetching === 'telegram' ? 'bg-blue-600' : 'bg-zinc-800 hover:bg-zinc-700'
                                     }`}
                             >
-                                <Twitter size={20} className="mb-1 text-blue-400" />
+                                <MessageCircle size={20} className="mb-1 text-blue-400" />
                                 <div className="text-sm font-medium">Telegram</div>
                                 <div className="text-xs text-zinc-500">{accounts.length} hesap takipte</div>
                             </button>
@@ -541,12 +541,12 @@ ${item.aiComment ? `\n🧠 AI Yorumu:\n${item.aiComment}\n` : ''}
                                                     href={item.sourceUrl}
                                                     target="_blank"
                                                     rel="noopener noreferrer"
-                                                    className={`text-xs px-2 py-1 rounded flex items-center gap-1 hover:opacity-80 transition-opacity ${item.sourceType === 'twitter'
+                                                    className={`text-xs px-2 py-1 rounded flex items-center gap-1 hover:opacity-80 transition-opacity ${item.source?.includes('Telegram')
                                                         ? 'bg-blue-900/40 text-blue-400'
                                                         : 'bg-green-900/40 text-green-400'
                                                         }`}
                                                 >
-                                                    {item.sourceType === 'twitter' ? <Twitter size={12} /> : <Globe size={12} />}
+                                                    {item.source?.includes('Telegram') ? <MessageCircle size={12} /> : <Globe size={12} />}
                                                     {item.source}
                                                     <ExternalLink size={10} />
                                                 </a>
@@ -633,13 +633,13 @@ ${item.aiComment ? `\n🧠 AI Yorumu:\n${item.aiComment}\n` : ''}
                 </>
             )}
 
-            {/* === X HESAPLARI TAB === */}
+            {/* === TELEGRAM KANALLARI TAB === */}
             {activeTab === 'accounts' && (
                 <div>
                     <div className="flex items-center justify-between mb-4">
                         <div>
-                            <h1 className="text-xl font-bold">X Hesapları</h1>
-                            <p className="text-zinc-500 text-sm">Takip edilecek Twitter/X hesaplarını yönetin</p>
+                            <h1 className="text-xl font-bold">Telegram Kanalları</h1>
+                            <p className="text-zinc-500 text-sm">Takip edilecek Telegram kanallarını yönetin</p>
                         </div>
                     </div>
 
@@ -673,7 +673,7 @@ ${item.aiComment ? `\n🧠 AI Yorumu:\n${item.aiComment}\n` : ''}
                     {/* Hesap Listesi */}
                     {accounts.length === 0 ? (
                         <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-10 text-center">
-                            <Twitter size={48} className="mx-auto text-zinc-600 mb-3" />
+                            <MessageCircle size={48} className="mx-auto text-zinc-600 mb-3" />
                             <p className="text-zinc-400 mb-1">Henüz hesap eklenmemiş</p>
                             <p className="text-zinc-500 text-sm">Yukarıdaki alana hesap adı yazıp ekleyin</p>
                         </div>
@@ -686,7 +686,7 @@ ${item.aiComment ? `\n🧠 AI Yorumu:\n${item.aiComment}\n` : ''}
                                 >
                                     <div className="flex items-center gap-3">
                                         <div className="w-10 h-10 bg-blue-600/20 rounded-full flex items-center justify-center">
-                                            <Twitter size={20} className="text-blue-400" />
+                                            <MessageCircle size={20} className="text-blue-400" />
                                         </div>
                                         <div>
                                             <p className="font-semibold">@{acc.handle}</p>

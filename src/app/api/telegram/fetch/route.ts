@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server'
  * Public kanallardan mesaj çekimi
  */
 
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || ''
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8493536005:AAGZ_FT7KxjEmo-wJW-kecBPIkn6JDdPT4Q'
 
 interface TelegramMessage {
     message_id: number
