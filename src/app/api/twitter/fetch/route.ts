@@ -1,122 +1,103 @@
 import { NextResponse } from 'next/server'
 
 /**
- * X/Twitter verileri - RSS-Bridge kullanarak
- * Kendi sunucumuzda çalışan RSS-Bridge instance'ı
+ * X/Twitter API v2 entegrasyonu
+ * Gerçek tweet çekimi
  */
 
-// RSS-Bridge local instance
-const RSS_BRIDGE_URL = 'http://localhost:8081'
+const TWITTER_BEARER_TOKEN = process.env.TWITTER_BEARER_TOKEN || 'AAAAAAAAAAAAAAAAAAAAAGW67AEAAAAAtBdmrCjCostdrlHcY8mwV9BNCj4%3DhqEDRGBdBSxN4r1FF8gBYOGEkQFYHZpacwWF5FxjyIatTvY9OF'
 
-interface ParsedTweet {
+interface Tweet {
     id: string
     text: string
-    author: string
-    date: string
-    link: string
+    author_id: string
+    created_at: string
 }
 
-// Atom feed'den tweet çıkar
-function parseTweetsFromAtom(xml: string, handle: string): ParsedTweet[] {
-    const tweets: ParsedTweet[] = []
+interface TwitterUser {
+    id: string
+    username: string
+    name: string
+}
 
-    // <entry> taglarını bul (Atom format)
-    const entries = xml.match(/<entry>[\s\S]*?<\/entry>/gi) || []
-
-    for (const entry of entries.slice(0, 5)) { // Son 5 tweet
-        const title = extractValue(entry, 'title')
-        const link = extractAttr(entry, 'link', 'href') || extractValue(entry, 'link')
-        const updated = extractValue(entry, 'updated') || extractValue(entry, 'published')
-        const content = extractValue(entry, 'content') || extractValue(entry, 'summary')
-        const id = extractValue(entry, 'id')
-
-        // Retweet kontrolü
-        if (title.startsWith('RT ') || content.startsWith('RT @')) {
-            continue
-        }
-
-        tweets.push({
-            id: id || Date.now().toString(),
-            text: cleanHtml(content || title),
-            author: handle,
-            date: updated,
-            link: link || `https://x.com/${handle}`,
-        })
+interface TwitterResponse {
+    data?: Tweet[]
+    includes?: {
+        users?: TwitterUser[]
     }
-
-    return tweets
+    errors?: Array<{ message: string }>
 }
 
-// XML tag değerini çıkar
-function extractValue(xml: string, tag: string): string {
-    const regex = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i')
-    const match = xml.match(regex)
-    if (match) {
-        let content = match[1]
-        const cdataMatch = content.match(/<!\[CDATA\[([\s\S]*?)\]\]>/)
-        if (cdataMatch) content = cdataMatch[1]
-        return content.trim()
-    }
-    return ''
-}
-
-// XML attribute değerini çıkar
-function extractAttr(xml: string, tag: string, attr: string): string {
-    const regex = new RegExp(`<${tag}[^>]*${attr}="([^"]*)"`, 'i')
-    const match = xml.match(regex)
-    return match ? match[1] : ''
-}
-
-// HTML temizle
-function cleanHtml(text: string): string {
-    return text
-        .replace(/<[^>]+>/g, '')
-        .replace(/&nbsp;/g, ' ')
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'")
-        .replace(/\n+/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-}
-
-// RSS-Bridge'den tweet çek
-async function fetchFromRSSBridge(handle: string): Promise<ParsedTweet[]> {
-    const cleanHandle = handle.replace('@', '').trim()
-    const url = `${RSS_BRIDGE_URL}/?action=display&bridge=TwitterBridge&context=By+username&u=${cleanHandle}&format=Atom`
-
-    console.log(`Fetching: ${url}`)
+// Kullanıcı ID'si al
+async function getUserId(username: string): Promise<string | null> {
+    const cleanUsername = username.replace('@', '').trim()
 
     try {
-        const response = await fetch(url, {
-            headers: {
-                'User-Agent': 'EmekGundemi/1.0',
-            },
-            cache: 'no-store',
-        })
+        const response = await fetch(
+            `https://api.twitter.com/2/users/by/username/${cleanUsername}`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${decodeURIComponent(TWITTER_BEARER_TOKEN)}`,
+                },
+            }
+        )
 
         if (!response.ok) {
-            console.log(`RSS-Bridge returned ${response.status}`)
-            return []
+            console.log(`User lookup failed for ${cleanUsername}: ${response.status}`)
+            return null
         }
 
-        const xml = await response.text()
-
-        // Atom feed kontrolü
-        if (!xml.includes('<entry>') && !xml.includes('<item>')) {
-            console.log('No entries found in response')
-            return []
-        }
-
-        const tweets = parseTweetsFromAtom(xml, cleanHandle)
-        console.log(`Got ${tweets.length} tweets for @${cleanHandle}`)
-
-        return tweets
+        const data = await response.json()
+        return data.data?.id || null
 
     } catch (error) {
-        console.error(`RSS-Bridge error:`, error)
+        console.error(`Error getting user ID for ${cleanUsername}:`, error)
+        return null
+    }
+}
+
+// Kullanıcının son tweet'lerini çek
+async function getUserTweets(userId: string, username: string, count: number = 5): Promise<any[]> {
+    try {
+        const params = new URLSearchParams({
+            'max_results': count.toString(),
+            'tweet.fields': 'created_at,text',
+            'exclude': 'retweets,replies'
+        })
+
+        const response = await fetch(
+            `https://api.twitter.com/2/users/${userId}/tweets?${params}`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${decodeURIComponent(TWITTER_BEARER_TOKEN)}`,
+                },
+            }
+        )
+
+        if (!response.ok) {
+            console.log(`Tweets fetch failed for user ${userId}: ${response.status}`)
+            const errorText = await response.text()
+            console.log('Error:', errorText)
+            return []
+        }
+
+        const data: TwitterResponse = await response.json()
+
+        if (data.errors) {
+            console.log('Twitter API errors:', data.errors)
+            return []
+        }
+
+        return (data.data || []).map(tweet => ({
+            id: tweet.id,
+            text: tweet.text,
+            author: username,
+            date: tweet.created_at,
+            link: `https://x.com/${username}/status/${tweet.id}`,
+        }))
+
+    } catch (error) {
+        console.error(`Error fetching tweets for ${userId}:`, error)
         return []
     }
 }
@@ -127,25 +108,36 @@ async function fetchFromRSSBridge(handle: string): Promise<ParsedTweet[]> {
 export async function POST(request: Request) {
     try {
         const body = await request.json()
-        const { handles } = body
+        const { handles, maxPerAccount = 5 } = body
 
         if (!handles || !Array.isArray(handles) || handles.length === 0) {
             return NextResponse.json({ error: 'Hesap listesi gerekli' }, { status: 400 })
         }
 
-        const allTweets: ParsedTweet[] = []
+        const allTweets: any[] = []
 
         for (const handle of handles) {
-            // Rate limit - her hesap arasında 1 saniye
-            await new Promise(r => setTimeout(r, 1000))
+            const cleanHandle = handle.replace('@', '').trim()
 
-            const tweets = await fetchFromRSSBridge(handle)
+            // User ID al
+            const userId = await getUserId(cleanHandle)
+
+            if (!userId) {
+                console.log(`Could not find user: ${cleanHandle}`)
+                continue
+            }
+
+            // Tweet'leri çek
+            const tweets = await getUserTweets(userId, cleanHandle, maxPerAccount)
             allTweets.push(...tweets)
+
+            // Rate limit için bekle
+            await new Promise(r => setTimeout(r, 1000))
         }
 
         // Haber formatına çevir
         const newsItems = allTweets.map(tweet => ({
-            title: `@${tweet.author}'ın açıklaması`,
+            title: `@${tweet.author}'ın X'teki açıklaması`,
             content: tweet.text,
             source: `@${tweet.author}`,
             sourceUrl: tweet.link,
