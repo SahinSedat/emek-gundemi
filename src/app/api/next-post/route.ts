@@ -120,16 +120,10 @@ function extractDetails(content: string): string[] {
     return details.slice(0, 5)
 }
 
-// Yüzeysel içerik kontrolü
+// Yüzeysel içerik kontrolü - DAHA ESNEK
 function isShallowContent(content: string, details: string[]): boolean {
-    const shallowWords = ['açıklandı', 'belirlendi', 'duyuruldu', 'belli oldu']
-    const hasShallow = shallowWords.some(w => content.toLowerCase().includes(w))
-
-    if (hasShallow && details.length < 2) return true
-
-    const hasNumbers = details.some(d => /\d+/.test(d))
-    if (hasShallow && !hasNumbers) return true
-
+    // Çok az detay varsa sadece reddet
+    if (details.length < 1) return true
     return false
 }
 
@@ -183,7 +177,7 @@ export async function GET(request: Request) {
     const news = await fetchNews()
 
     if (news.length === 0) {
-        return new NextResponse('', { status: 204 })
+        return NextResponse.json({ empty: true, reason: 'no_news' })
     }
 
     // Uygun haberi bul
@@ -220,7 +214,7 @@ export async function GET(request: Request) {
     }
 
     if (!formattedText || !selectedNews) {
-        return new NextResponse('', { status: 204 })
+        return NextResponse.json({ empty: true, reason: 'no_suitable_news' })
     }
 
     // İşaretle
