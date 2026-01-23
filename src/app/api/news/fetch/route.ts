@@ -12,34 +12,46 @@ interface FeedItem {
     source: string
 }
 
-// Bilinen RSS Feed'leri
+// Bilinen RSS Feed'leri - GENIŞLETILMIŞ KAMU HABER KAYNAKLARI
 const RSS_FEEDS: Record<string, { name: string; url: string; type: string }> = {
-    // === RESMİ KAYNAKLAR ===
-    'resmigazete': {
-        name: 'Resmî Gazete',
-        url: 'https://www.resmigazete.gov.tr/rss/eskiler.xml',
-        type: 'resmi'
-    },
-
     // === KAMU HABER SİTELERİ ===
-    'memurlar': {
-        name: 'Memurlar.net',
-        url: 'https://www.memurlar.net/rss/',
-        type: 'haber'
-    },
     'kamuajans': {
         name: 'Kamu Ajans',
         url: 'https://www.kamuajans.com/rss',
         type: 'haber'
     },
-    'kamupersoneli': {
-        name: 'Kamu Personeli',
-        url: 'https://www.kamupersoneli.net/rss.xml',
+    'mebpersonel': {
+        name: 'MEB Personel',
+        url: 'https://mebpersonel.com/feed/',
+        type: 'haber'
+    },
+    'kamudanhaber': {
+        name: 'Kamudanhaber',
+        url: 'https://www.kamudanhaber.net/rss.xml',
+        type: 'haber'
+    },
+    'sabah_memur': {
+        name: 'Sabah Memur',
+        url: 'https://www.sabah.com.tr/rss/memurlar.xml',
+        type: 'haber'
+    },
+    'hurriyet_ekonomi': {
+        name: 'Hürriyet Ekonomi',
+        url: 'https://www.hurriyet.com.tr/rss/ekonomi',
+        type: 'haber'
+    },
+    'sozcu_ekonomi': {
+        name: 'Sözcü Ekonomi',
+        url: 'https://www.sozcu.com.tr/rss/ekonomi.xml',
+        type: 'haber'
+    },
+    'ntv_ekonomi': {
+        name: 'NTV Ekonomi',
+        url: 'https://www.ntv.com.tr/ekonomi.rss',
         type: 'haber'
     },
 
-    // === SENDİKA & EMEK HABERLERİ ===
-    // TİS, KÇP, 696 KHK, işçi-memur mücadelesi
+    // === SENDİKA HABERLERİ ===
     'sendika': {
         name: 'Sendika.org',
         url: 'https://sendika.org/feed/',
@@ -47,20 +59,8 @@ const RSS_FEEDS: Record<string, { name: string; url: string; type: string }> = {
     },
     'evrensel': {
         name: 'Evrensel İşçi',
-        url: 'https://www.evrensel.net/rss/8.xml', // işçi haberleri
+        url: 'https://www.evrensel.net/rss/8.xml',
         type: 'sendika'
-    },
-    'birgun': {
-        name: 'BirGün Emek',
-        url: 'https://www.birgun.net/rss/emek.xml',
-        type: 'sendika'
-    },
-
-    // === İŞ DÜNYASI & EKONOMİ ===
-    'ekonomi': {
-        name: 'Ekonomi Haberleri',
-        url: 'https://www.bloomberght.com/rss',
-        type: 'ekonomi'
     },
 }
 
